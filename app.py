@@ -171,3 +171,20 @@ if st.button("Analyze Transaction", type="primary"):
         "anomalies, not proven fraud. Scores are illustrative "
         "and must not be used for real payment decisions."
             )
+
+st.divider()
+st.subheader("PayPal-Style Transaction Simulator")
+st.caption(
+    "Generates fictional transactions for demonstration only. "
+    "No PayPal API connection or real payment is involved."
+)
+
+if st.button("Generate Simulated Transaction"):
+    simulated_transaction = simulate_paypal_transaction(
+        amount=max(float(amount), 0.01),
+        currency="USD",
+        country_mismatch=country_mismatch,
+        new_account=new_account,
+        unusual_activity=unusual_activity,
+    )
+    st.json(simulated_transaction)
