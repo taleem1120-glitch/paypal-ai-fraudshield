@@ -153,16 +153,19 @@ if st.button("Analyze Transaction", type="primary"):
 
     st.subheader("Analysis Summary")
 
-        st.dataframe(
-        pd.DataFrame([{
-            "Amount (USD)": amount,
-            "Rule Score": rule_score,
-            "ML Anomaly": "Yes" if is_anomaly else "No",
-            "Recommended Action": recommended_action
-        }]),
-        use_container_width=True
-        )
+    summary_df = pd.DataFrame([{
+        "Amount (USD)": amount,
+        "Rule Score": rule_score,
+        "ML Anomaly": "Yes" if is_anomaly else "No",
+        "Recommended Action": recommended_action
+    }])
 
+    st.dataframe(
+        summary_df,
+        use_container_width=True
+    )
+
+    
     st.caption(
         "Important: Isolation Forest detects statistical "
         "anomalies, not proven fraud. Scores are illustrative "
