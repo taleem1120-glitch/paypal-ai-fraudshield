@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
-
+from paypal_simulator import simulate_paypal_transaction
 st.set_page_config(
     page_title="FraudShield AI",
     page_icon="🛡️",
