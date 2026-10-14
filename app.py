@@ -119,13 +119,23 @@ if st.button("Analyze Transaction", type="primary"):
 
     st.progress(rule_score / 100)
 
+    
     if rule_score >= 60:
+        risk_level = "HIGH RISK"
+        recommended_action = "Manual review"
         st.error("HIGH RISK — Manual review recommended")
+    elif is_anomaly:
+        risk_level = "ANOMALY DETECTED"
+        recommended_action = "Review unusual transaction"
+        st.warning("ANOMALY DETECTED — Review recommended")
     elif rule_score >= 30:
+        risk_level = "MEDIUM RISK"
+        recommended_action = "Additional verification"
         st.warning("MEDIUM RISK — Additional verification")
     else:
-        st.success("LOW RULE-BASED RISK")
-
+        risk_level = "LOW INDICATED RISK"
+        recommended_action = "Routine processing (demo only)"
+        st.success("LOW INDICATED RISK")
     if is_anomaly:
         st.warning(
             "The machine learning model also identified "
@@ -143,19 +153,15 @@ if st.button("Analyze Transaction", type="primary"):
 
     st.subheader("Analysis Summary")
 
-    st.dataframe(
+        st.dataframe(
         pd.DataFrame([{
             "Amount (USD)": amount,
             "Rule Score": rule_score,
             "ML Anomaly": "Yes" if is_anomaly else "No",
-            "Recommended Action": (
-                "Manual review" if rule_score >= 60
-                else "Verify" if rule_score >= 30
-                else "Routine processing"
-            )
+            "Recommended Action": recommended_action
         }]),
         use_container_width=True
-    )
+        )
 
     st.caption(
         "Important: Isolation Forest detects statistical "
