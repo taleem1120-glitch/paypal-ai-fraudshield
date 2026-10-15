@@ -92,6 +92,7 @@ def train_model():
 model = train_model()
 
 st.subheader("Transaction Information")
+st.caption("PayPal Sandbox supplies the order amount, ID and status after lookup. Risk flags below are entered manually; they are not verified by PayPal.")
 if st.session_state.get("paypal_order_id"):
     st.info(
         f"PayPal Sandbox Order: "
@@ -218,12 +219,41 @@ if st.button("Analyze Transaction", type="primary"):
         use_container_width=True
     )
 
+    if "analysis_history" not in st.session_state:
+        st.session_state["analysis_history"] = []
+    st.session_state["analysis_history"].append({
+        "PayPal Order ID": st.session_state.get("paypal_order_id") or "Manual",
+        "PayPal Order Status": st.session_state.get("paypal_order_status") or "N/A",
+        "Amount (USD)": amount,
+        "Country Mismatch (manual)": country_mismatch,
+        "New Account (manual)": new_account,
+        "Unusual Activity (manual)": unusual_activity,
+        "Rule Score": rule_score,
+        "ML Anomaly": "Yes" if is_anomaly else "No",
+        "ML Decision Score": round(anomaly_score, 4),
+        "Risk Level": risk_level,
+        "Recommended Action": recommended_action,
+    })
+
     
     st.caption(
         "Important: Isolation Forest detects statistical "
         "anomalies, not proven fraud. Scores are illustrative "
         "and must not be used for real payment decisions."
             )
+
+if st.session_state.get("analysis_history"):
+    st.divider()
+    st.subheader("Transaction Analysis History")
+    st.caption("Session-only demo history. Cleared when the Streamlit session ends; no persistent storage.")
+    history_df = pd.DataFrame(st.session_state["analysis_history"])
+    st.dataframe(history_df, use_container_width=True)
+    st.download_button(
+        "Download Analysis History (CSV)",
+        data=history_df.to_csv(index=False).encode("utf-8"),
+        file_name="fraudshield_analysis_history.csv",
+        mime="text/csv",
+    )
 
 st.divider()
 st.subheader("PayPal-Style Transaction Simulator")
