@@ -92,7 +92,12 @@ def train_model():
 model = train_model()
 
 st.subheader("Transaction Information")
-
+if st.session_state.get("paypal_order_id"):
+    st.info(
+        f"PayPal Sandbox Order: "
+        f"{st.session_state['paypal_order_id']} | "
+        f"Status: {st.session_state.get('paypal_order_status', 'Unknown')}"
+    )
 amount = st.number_input(
     "Transaction amount (USD)",
     min_value=0.0,
