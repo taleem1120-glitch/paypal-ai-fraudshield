@@ -64,3 +64,39 @@ def get_paypal_sandbox_order(order_id):
 
     except Exception:
         return False, "Unable to retrieve the PayPal Sandbox order."
+def create_paypal_sandbox_order():
+    try:
+        token = get_paypal_access_token()
+
+        response = requests.post(
+            f"{PAYPAL_API}/v2/checkout/orders",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "Prefer": "return=representation"
+            },
+            json={
+                "intent": "CAPTURE",
+                "purchase_units": [
+                    {
+                        "amount": {
+                            "currency_code": "USD",
+                            "value": "1.00"
+                        }
+                    }
+                ]
+            },
+            timeout=20
+        )
+
+        response.raise_for_status()
+        return True, response.json()
+
+    except requests.HTTPError as error:
+        return False, f"PayPal HTTP error: {error.response.status_code}"
+
+    except requests.RequestException:
+        return False, "PayPal network error."
+
+    except Exception:
+        return False, "Unable to create Sandbox order."
