@@ -34,3 +34,33 @@ def test_paypal_connection():
         return False, "PayPal configuration error."
 
     
+
+def get_paypal_sandbox_order(order_id):
+    """Retrieve a PayPal Sandbox order without capturing payment."""
+    if not order_id or not order_id.strip():
+        return False, "Order ID is required."
+
+    try:
+        token = get_paypal_access_token()
+
+        response = requests.get(
+            f"{PAYPAL_API}/v2/checkout/orders/{order_id.strip()}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            timeout=20,
+        )
+
+        response.raise_for_status()
+        return True, response.json()
+
+    except requests.HTTPError as error:
+        status = error.response.status_code
+        return False, f"PayPal API error: HTTP {status}"
+
+    except requests.RequestException:
+        return False, "Network error while retrieving the order."
+
+    except Exception:
+        return False, "Unable to retrieve the PayPal Sandbox order."
