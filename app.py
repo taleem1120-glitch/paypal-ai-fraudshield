@@ -93,8 +93,8 @@ st.subheader("Transaction Information")
 amount = st.number_input(
     "Transaction amount (USD)",
     min_value=0.0,
-    value=100.0,
-    step=50.0
+    value=float(st.session_state.get("paypal_order_amount", 100.0)),
+    step=1.0
 )
 
 country_mismatch = st.checkbox(
