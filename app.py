@@ -27,7 +27,22 @@ if st.button("🔗 Test PayPal Sandbox Connection"):
         st.success(message)
     else:
         st.error(message)
+st.subheader("PayPal Sandbox Order Lookup")
 
+order_id = st.text_input(
+    "Enter PayPal Sandbox Order ID"
+)
+
+if st.button("Get PayPal Sandbox Order"):
+    if not order_id.strip():
+        st.warning("Please enter an Order ID.")
+    else:
+        success, result = get_paypal_sandbox_order(order_id.strip())
+        if success:
+            st.success("Sandbox order retrieved successfully.")
+            st.json(result)
+        else:
+            st.error(str(result))
 
 @st.cache_resource
 def train_model():
