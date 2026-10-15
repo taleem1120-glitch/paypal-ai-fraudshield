@@ -3,7 +3,9 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 from paypal_simulator import simulate_paypal_transaction
+from paypal_sandbox import test_paypal_connection
 st.set_page_config(
+    
     page_title="FraudShield AI",
     page_icon="🛡️",
     layout="wide"
@@ -17,6 +19,13 @@ st.info(
     "The machine learning model uses synthetic data, "
     "not real fraud records."
 )
+if st.button("🔗 Test PayPal Sandbox Connection"):
+    with st.spinner("Connecting to PayPal Sandbox..."):
+        success, message = test_paypal_connection()
+    if success:
+        st.success(message)
+    else:
+        st.error(message)
 
 
 @st.cache_resource
