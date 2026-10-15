@@ -48,7 +48,7 @@ if st.button("Get PayPal Sandbox Order"):
                 st.session_state["paypal_order_amount"] = paypal_amount
 
                 st.session_state["paypal_order_id"] = result.get("id", "")
-st.session_state["paypal_order_status"] = result.get("status", "")
+                st.session_state["paypal_order_status"] = result.get("status", "")
                 st.info(f"PayPal Sandbox amount loaded: ${paypal_amount:.2f}")
             except (KeyError, IndexError, TypeError, ValueError):
                 st.warning("Order amount could not be extracted.")   
