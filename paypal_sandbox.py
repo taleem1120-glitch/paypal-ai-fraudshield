@@ -17,8 +17,7 @@ def get_paypal_access_token():
     )
     response.raise_for_status()
      return response.json()["access_token"]
-
-    def test_paypal_connection():
+def test_paypal_connection():
     try:
         token = get_paypal_access_token()
         if token:
