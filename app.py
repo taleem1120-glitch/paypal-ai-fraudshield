@@ -41,6 +41,14 @@ if st.button("Get PayPal Sandbox Order"):
         if success:
             st.success("Sandbox order retrieved successfully.")
             st.json(result)
+            try:
+                paypal_amount = float(
+                    result["purchase_units"][0]["amount"]["value"]
+                )
+                st.session_state["paypal_order_amount"] = paypal_amount
+                st.info(f"PayPal Sandbox amount loaded: ${paypal_amount:.2f}")
+            except (KeyError, IndexError, TypeError, ValueError):
+                st.warning("Order amount could not be extracted.")   
         else:
             st.error(str(result))
 st.subheader("Create PayPal Sandbox Test Order")
