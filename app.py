@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 from paypal_simulator import simulate_paypal_transaction
-from paypal_sandbox import test_paypal_connection, get_paypal_sandbox_order
+from paypal_sandbox import test_paypal_connection, get_paypal_sandbox_order, create_paypal_sandbox_order
 st.set_page_config(
 
     
@@ -43,7 +43,19 @@ if st.button("Get PayPal Sandbox Order"):
             st.json(result)
         else:
             st.error(str(result))
+st.subheader("Create PayPal Sandbox Test Order")
 
+if st.button("Create Sandbox Order ($1.00)"):
+    with st.spinner("Creating PayPal Sandbox order..."):
+        success, result = create_paypal_sandbox_order()
+
+    if success:
+        st.success("Sandbox order created successfully!")
+        st.write("Order ID:", result.get("id"))
+        st.json(result)
+    else:
+        st.error(str(result))
+        
 @st.cache_resource
 def train_model():
     rng = np.random.default_rng(42)
