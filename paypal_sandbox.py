@@ -16,24 +16,22 @@ def get_paypal_access_token():
         timeout=20,
     )
     response.raise_for_status()
-    return response.json()["access_token"]
+     return response.json()["access_token"]
 
-
-def test_paypal_connection():
+    def test_paypal_connection():
     try:
         token = get_paypal_access_token()
-        response = requests.get(
-            f"{PAYPAL_API}/v1/catalogs/products",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            params={"page_size": 1},
-            timeout=20,
-        )
-        response.raise_for_status()
-        return True, "PayPal Sandbox API connection successful."
-    except (requests.RequestException, KeyError, ValueError):
-        return False, "PayPal Sandbox connection failed."
+        if token:
+            return True, "PayPal Sandbox authentication successful."
+        return False, "PayPal did not return an access token."
+    except requests.HTTPError as error:
+        status = error.response.status_code if error.response is not None else "unknown"
+        return False, f"PayPal authentication failed. HTTP status: {status}"
+    except requests.RequestException:
+        return False, "Network error while connecting to PayPal Sandbox."
+    except (KeyError, ValueError):
+        return False, "Missing configuration or invalid PayPal response."
     except Exception:
-        return False, "PayPal configuration or connection error."
+        return False, "PayPal configuration error."
+
+    
