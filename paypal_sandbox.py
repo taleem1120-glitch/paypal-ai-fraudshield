@@ -1,102 +1,99 @@
-import requests
-import streamlit as st
+"""Sandbox-only API boundary. Never return raw responses on failures."""
+import base64
+import json
+import re
+from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.error import HTTPError, URLError
 
 PAYPAL_API = "https://api-m.sandbox.paypal.com"
 
 
-def get_paypal_access_token():
-    client_id = st.secrets["PAYPAL_CLIENT_ID"]
-    client_secret = st.secrets["PAYPAL_CLIENT_SECRET"]
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        # Do not forward Authorization to a redirected destination.
+        return None
 
-    response = requests.post(
-        f"{PAYPAL_API}/v1/oauth2/token",
-        auth=(client_id, client_secret),
-        data={"grant_type": "client_credentials"},
-        headers={"Accept": "application/json"},
-        timeout=20,
-    )
-    response.raise_for_status()   
-    return response.json()["access_token"]
-def test_paypal_connection():
+
+def urlopen(request, timeout):
+    return build_opener(_NoRedirect()).open(request, timeout=timeout)
+
+
+class PayPalError(Exception):
+    """Safe, customer-visible API failure."""
+
+
+def _request(path, headers, payload=None, form=False):
+    data = payload.encode() if form else (json.dumps(payload).encode() if payload is not None else None)
+    request = Request(PAYPAL_API + path, data=data, headers=headers)
     try:
-        token = get_paypal_access_token()
-        if token:
-            return True, "PayPal Sandbox authentication successful."
-        return False, "PayPal did not return an access token."
-    except requests.HTTPError as error:
-        status = error.response.status_code if error.response is not None else "unknown"
-        return False, f"PayPal authentication failed. HTTP status: {status}"
-    except requests.RequestException:
-        return False, "Network error while connecting to PayPal Sandbox."
-    except (KeyError, ValueError):
-        return False, "Missing configuration or invalid PayPal response."
-    except Exception:
-        return False, "PayPal configuration error."
+        with urlopen(request, timeout=20) as response:
+            result = json.load(response)
+        if not isinstance(result, dict):
+            raise ValueError
+        return result
+    except HTTPError as error:
+        raise PayPalError(f"PayPal Sandbox request failed (HTTP {error.code}).") from None
+    except (URLError, TimeoutError, OSError):
+        raise PayPalError("Network error while connecting to PayPal Sandbox.") from None
+    except (ValueError, TypeError):
+        raise PayPalError("PayPal Sandbox returned an invalid response.") from None
 
-    
+
+def get_paypal_access_token():
+    try:
+        import streamlit as st
+        client_id = st.secrets["PAYPAL_CLIENT_ID"]
+        client_secret = st.secrets["PAYPAL_CLIENT_SECRET"]
+        if not client_id or not client_secret:
+            raise ValueError
+        auth = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    except Exception:
+        raise PayPalError("PayPal Sandbox credentials are not configured.") from None
+    result = _request("/v1/oauth2/token", {
+        "Authorization": f"Basic {auth}", "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }, "grant_type=client_credentials", form=True)
+    token = result.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise PayPalError("PayPal Sandbox did not return a valid access token.")
+    return token
+
+
+def _safe_call(operation):
+    try:
+        return True, operation()
+    except PayPalError as error:
+        return False, str(error)
+    except Exception:
+        return False, "Unable to complete the PayPal Sandbox request."
+
+
+def test_paypal_connection():
+    def authenticate():
+        get_paypal_access_token()
+        return "PayPal Sandbox authentication successful."
+    return _safe_call(authenticate)
+
 
 def get_paypal_sandbox_order(order_id):
-    """Retrieve a PayPal Sandbox order without capturing payment."""
-    if not order_id or not order_id.strip():
-        return False, "Order ID is required."
-
-    try:
+    if not isinstance(order_id, str) or not re.fullmatch(r"[A-Za-z0-9-]{1,64}", order_id.strip()):
+        return False, "A valid Order ID is required."
+    def retrieve():
         token = get_paypal_access_token()
+        return _request(f"/v2/checkout/orders/{order_id.strip()}", {
+            "Authorization": f"Bearer {token}", "Accept": "application/json"})
+    return _safe_call(retrieve)
 
-        response = requests.get(
-            f"{PAYPAL_API}/v2/checkout/orders/{order_id.strip()}",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            timeout=20,
-        )
 
-        response.raise_for_status()
-        return True, response.json()
-
-    except requests.HTTPError as error:
-        status = error.response.status_code
-        return False, f"PayPal API error: HTTP {status}"
-
-    except requests.RequestException:
-        return False, "Network error while retrieving the order."
-
-    except Exception:
-        return False, "Unable to retrieve the PayPal Sandbox order."
 def create_paypal_sandbox_order():
-    try:
+    def create():
         token = get_paypal_access_token()
-
-        response = requests.post(
-            f"{PAYPAL_API}/v2/checkout/orders",
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-                "Prefer": "return=representation"
-            },
-            json={
-                "intent": "CAPTURE",
-                "purchase_units": [
-                    {
-                        "amount": {
-                            "currency_code": "USD",
-                            "value": "1.00"
-                        }
-                    }
-                ]
-            },
-            timeout=20
-        )
-
-        response.raise_for_status()
-        return True, response.json()
-
-    except requests.HTTPError as error:
-        return False, f"PayPal HTTP error: {error.response.status_code}"
-
-    except requests.RequestException:
-        return False, "PayPal network error."
-
-    except Exception:
-        return False, "Unable to create Sandbox order."
+        result = _request("/v2/checkout/orders", {
+            "Authorization": f"Bearer {token}", "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        }, {"intent": "CAPTURE", "purchase_units": [
+            {"amount": {"currency_code": "USD", "value": "1.00"}}]})
+        if not isinstance(result.get("id"), str) or not result["id"]:
+            raise PayPalError("PayPal Sandbox returned an invalid order.")
+        return result
+    return _safe_call(create)

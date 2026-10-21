@@ -117,3 +117,35 @@ MIT License.
 Hackathon
 
 Developed as a prototype for the PayPal AI Hackathon 2026.
+
+
+### Phase 1 safety and regression checks
+
+Order lookup preserves the returned currency. Scoring currently supports **USD only**;
+non-USD amounts are displayed accurately and are never converted implicitly. Multiple
+purchase units and malformed amounts are rejected instead of selecting a partial total.
+Editing the lookup ID, amount, or currency detaches the order. Starting another lookup
+clears the old attribution even if that request fails. History captures independent
+values and UTC timestamps; this is session-only provenance, not a durable audit ledger.
+
+`scoring.py` contains the deterministic model training, rule scoring, ML scoring, and
+risk decision functions. `transactions.py` handles validated money and frozen order
+snapshots. The Streamlit interface retains connection testing, lookup, $1 sandbox order
+creation, analysis, history CSV download, and simulation. API displays use only the
+order ID, status, amount, and currency; raw customer response data is not rendered.
+The sandbox client uses Python's standard HTTP library with timeouts, normal TLS
+verification, blocked redirects, and sanitized errors. No payment capture is performed.
+CORS and XSRF protection are explicitly enabled in `.streamlit/config.toml`.
+
+Run regression checks with:
+
+```sh
+pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python -m compileall -q app.py scoring.py transactions.py paypal_sandbox.py paypal_simulator.py
+```
+
+API tests use fictional data and mocked transport; they do not require credentials.
+The GitHub Actions workflow runs these checks without secrets. Live sandbox integration
+and browser checks require a separately configured environment. Keep credentials in
+Streamlit secrets, never in source control.
