@@ -1,0 +1,935 @@
+diff --git a/.devcontainer/devcontainer.json b/.devcontainer/devcontainer.json
+index 19ff7d1..143a6b0 100644
+--- a/.devcontainer/devcontainer.json
++++ b/.devcontainer/devcontainer.json
+@@ -19,7 +19,7 @@
+   },
+   "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+   "postAttachCommand": {
+-    "server": "streamlit run app.py --server.enableCORS false --server.enableXsrfProtection false"
++    "server": "streamlit run app.py"
+   },
+   "portsAttributes": {
+     "8501": {
+@@ -30,4 +30,4 @@
+   "forwardPorts": [
+     8501
+   ]
+-}
+\ No newline at end of file
++}
+diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
+new file mode 100644
+index 0000000..26a4d7f
+--- /dev/null
++++ b/.github/workflows/tests.yml
+@@ -0,0 +1,15 @@
++name: Phase 1 regression tests
++on: [push, pull_request]
++permissions:
++  contents: read
++jobs:
++  test:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-python@v5
++        with:
++          python-version: '3.11'
++      - run: pip install -r requirements.txt
++      - run: python -m unittest discover -s tests -v
++      - run: python -m compileall -q app.py scoring.py transactions.py paypal_sandbox.py paypal_simulator.py
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..5573b0e
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,5 @@
++__pycache__/
++*.py[cod]
++.venv/
++.streamlit/secrets.toml
++.env
+diff --git a/.streamlit/config.toml b/.streamlit/config.toml
+new file mode 100644
+index 0000000..713b568
+--- /dev/null
++++ b/.streamlit/config.toml
+@@ -0,0 +1,3 @@
++[server]
++enableCORS = true
++enableXsrfProtection = true
+diff --git a/README.md b/README.md
+index 9852b8a..5015433 100644
+--- a/README.md
++++ b/README.md
+@@ -117,3 +117,35 @@ MIT License.
+ Hackathon
+ 
+ Developed as a prototype for the PayPal AI Hackathon 2026.
++
++
++### Phase 1 safety and regression checks
++
++Order lookup preserves the returned currency. Scoring currently supports **USD only**;
++non-USD amounts are displayed accurately and are never converted implicitly. Multiple
++purchase units and malformed amounts are rejected instead of selecting a partial total.
++Editing the lookup ID, amount, or currency detaches the order. Starting another lookup
++clears the old attribution even if that request fails. History captures independent
++values and UTC timestamps; this is session-only provenance, not a durable audit ledger.
++
++`scoring.py` contains the deterministic model training, rule scoring, ML scoring, and
++risk decision functions. `transactions.py` handles validated money and frozen order
++snapshots. The Streamlit interface retains connection testing, lookup, $1 sandbox order
++creation, analysis, history CSV download, and simulation. API displays use only the
++order ID, status, amount, and currency; raw customer response data is not rendered.
++The sandbox client uses Python's standard HTTP library with timeouts, normal TLS
++verification, blocked redirects, and sanitized errors. No payment capture is performed.
++CORS and XSRF protection are explicitly enabled in `.streamlit/config.toml`.
++
++Run regression checks with:
++
++```sh
++pip install -r requirements.txt
++python -m unittest discover -s tests -v
++python -m compileall -q app.py scoring.py transactions.py paypal_sandbox.py paypal_simulator.py
++```
++
++API tests use fictional data and mocked transport; they do not require credentials.
++The GitHub Actions workflow runs these checks without secrets. Live sandbox integration
++and browser checks require a separately configured environment. Keep credentials in
++Streamlit secrets, never in source control.
+diff --git a/app.py b/app.py
+index bb0bc33..ba3d977 100644
+--- a/app.py
++++ b/app.py
+@@ -1,9 +1,10 @@
+ import streamlit as st
+-import numpy as np
+ import pandas as pd
+-from sklearn.ensemble import IsolationForest
+ from paypal_simulator import simulate_paypal_transaction
+ from paypal_sandbox import test_paypal_connection, get_paypal_sandbox_order, create_paypal_sandbox_order
++from transactions import parse_order, transaction_record, active_order
++from scoring import train_model, score_transaction, risk_decision
++
+ st.set_page_config(
+ 
+     
+@@ -33,27 +34,28 @@ order_id = st.text_input(
+     "Enter PayPal Sandbox Order ID"
+ )
+ 
++# Editing the lookup ID immediately detaches any previous order.
++active_order(st.session_state, requested_id=order_id.strip())
++
+ if st.button("Get PayPal Sandbox Order"):
++    active_order(st.session_state, lookup_started=True)
+     if not order_id.strip():
+         st.warning("Please enter an Order ID.")
+     else:
+         success, result = get_paypal_sandbox_order(order_id.strip())
+         if success:
+-            st.success("Sandbox order retrieved successfully.")
+-            st.json(result)
+             try:
+-                paypal_amount = float(
+-                    result["purchase_units"][0]["amount"]["value"]
+-                )
+-                st.session_state["paypal_order_amount"] = paypal_amount
+-
+-                st.session_state["paypal_order_id"] = result.get("id", "")
+-                st.session_state["paypal_order_status"] = result.get("status", "")
+-                st.info(f"PayPal Sandbox amount loaded: ${paypal_amount:.2f}")
+-            except (KeyError, IndexError, TypeError, ValueError):
+-                st.warning("Order amount could not be extracted.")   
++                snapshot = parse_order(result, order_id.strip())
++                st.session_state["order_snapshot"] = snapshot
++                st.session_state["transaction_amount"] = float(snapshot.amount)
++                st.session_state["transaction_currency"] = snapshot.currency
++                st.success("Sandbox order retrieved successfully.")
++                st.json({"id": snapshot.order_id, "status": snapshot.status,
++                         "amount": str(snapshot.amount), "currency": snapshot.currency})
++            except ValueError:
++                st.warning("Order could not be loaded: expected a matching ID and one valid currency amount.")
+         else:
+-            st.error(str(result))
++            st.error(result)
+ st.subheader("Create PayPal Sandbox Test Order")
+ 
+ if st.button("Create Sandbox Order ($1.00)"):
+@@ -63,48 +65,27 @@ if st.button("Create Sandbox Order ($1.00)"):
+     if success:
+         st.success("Sandbox order created successfully!")
+         st.write("Order ID:", result.get("id"))
+-        st.json(result)
++        st.json({"id": result.get("id"), "status": result.get("status")})
+     else:
+         st.error(str(result))
+         
+-@st.cache_resource
+-def train_model():
+-    rng = np.random.default_rng(42)
+-    n = 3000
+-
+-    data = np.column_stack([
+-        rng.lognormal(4.5, 1.0, n),
+-        rng.binomial(1, 0.10, n),
+-        rng.binomial(1, 0.20, n),
+-        rng.binomial(1, 0.08, n),
+-    ])
+-
+-    model = IsolationForest(
+-        n_estimators=150,
+-        contamination=0.08,
+-        random_state=42
+-    )
+-
+-    model.fit(data)
+-    return model
+-
+-
+-model = train_model()
++model = st.cache_resource(train_model)()
+ 
+ st.subheader("Transaction Information")
+ st.caption("PayPal Sandbox supplies the order amount, ID and status after lookup. Risk flags below are entered manually; they are not verified by PayPal.")
+-if st.session_state.get("paypal_order_id"):
+-    st.info(
+-        f"PayPal Sandbox Order: "
+-        f"{st.session_state['paypal_order_id']} | "
+-        f"Status: {st.session_state.get('paypal_order_status', 'Unknown')}"
+-    )
+-amount = st.number_input(
+-    "Transaction amount (USD)",
+-    min_value=0.0,
+-    value=float(st.session_state.get("paypal_order_amount", 100.0)),
+-    step=1.0
+-)
++snapshot = st.session_state.get("order_snapshot")
++if snapshot:
++    st.info(f"PayPal Sandbox Order: {snapshot.order_id} | Status: {snapshot.status}")
++if "transaction_amount" not in st.session_state:
++    st.session_state["transaction_amount"] = 100.0
++if "transaction_currency" not in st.session_state:
++    st.session_state["transaction_currency"] = "USD"
++amount = st.number_input("Transaction amount", min_value=0.0, step=1.0, key="transaction_amount")
++currency = st.text_input("Currency code", key="transaction_currency")
++# Once edited, the order is detached even if the user later restores the amount.
++snapshot = active_order(st.session_state, amount=amount, currency=currency)
++if currency != "USD":
++    st.warning("Scoring supports USD only. This amount is not converted or treated as USD.")
+ 
+ country_mismatch = st.checkbox(
+     "Customer and payment countries differ"
+@@ -118,38 +99,14 @@ unusual_activity = st.checkbox(
+     "Unusual transaction activity"
+ )
+ 
+-if st.button("Analyze Transaction", type="primary"):
+-
+-    reasons = []
+-    rule_score = 0
+-
+-    if amount > 1000:
+-        rule_score += 25
+-        reasons.append("Large transaction amount")
+-
+-    if country_mismatch:
+-        rule_score += 30
+-        reasons.append("Country mismatch")
+-
+-    if new_account:
+-        rule_score += 20
+-        reasons.append("New customer account")
+-
+-    if unusual_activity:
+-        rule_score += 25
+-        reasons.append("Unusual transaction activity")
+-
+-    features = pd.DataFrame([{
+-        "amount": amount,
+-        "country_mismatch": int(country_mismatch),
+-        "new_account": int(new_account),
+-        "unusual_activity": int(unusual_activity)
+-    }])
+-
+-    prediction = model.predict(features)[0]
+-    anomaly_score = float(model.decision_function(features)[0])
+-
+-    is_anomaly = prediction == -1
++if st.button("Analyze Transaction", type="primary", disabled=currency != "USD"):
++    try:
++        provenance = transaction_record(amount, currency, snapshot)
++        rule_score, reasons, is_anomaly, anomaly_score = score_transaction(
++            model, amount, currency, country_mismatch, new_account, unusual_activity)
++    except Exception:
++        st.error("Analysis could not be completed. Check the transaction inputs and try again.")
++        st.stop()
+ 
+     st.divider()
+     st.subheader("Risk Analysis Results")
+@@ -174,22 +131,13 @@ if st.button("Analyze Transaction", type="primary"):
+     st.progress(rule_score / 100)
+ 
+     
+-    if rule_score >= 60:
+-        risk_level = "HIGH RISK"
+-        recommended_action = "Manual review"
++    risk_level, recommended_action = risk_decision(rule_score, is_anomaly)
++    if risk_level == "HIGH RISK":
+         st.error("HIGH RISK — Manual review recommended")
+-    elif is_anomaly:
+-        risk_level = "ANOMALY DETECTED"
+-        recommended_action = "Review unusual transaction"
+-        st.warning("ANOMALY DETECTED — Review recommended")
+-    elif rule_score >= 30:
+-        risk_level = "MEDIUM RISK"
+-        recommended_action = "Additional verification"
+-        st.warning("MEDIUM RISK — Additional verification")
++    elif risk_level == "LOW INDICATED RISK":
++        st.success(risk_level)
+     else:
+-        risk_level = "LOW INDICATED RISK"
+-        recommended_action = "Routine processing (demo only)"
+-        st.success("LOW INDICATED RISK")
++        st.warning(f"{risk_level} — {recommended_action}")
+     if is_anomaly:
+         st.warning(
+             "The machine learning model also identified "
+@@ -208,7 +156,8 @@ if st.button("Analyze Transaction", type="primary"):
+     st.subheader("Analysis Summary")
+ 
+     summary_df = pd.DataFrame([{
+-        "Amount (USD)": amount,
++        "Amount": amount,
++        "Currency": currency,
+         "Rule Score": rule_score,
+         "ML Anomaly": "Yes" if is_anomaly else "No",
+         "Recommended Action": recommended_action
+@@ -222,9 +171,7 @@ if st.button("Analyze Transaction", type="primary"):
+     if "analysis_history" not in st.session_state:
+         st.session_state["analysis_history"] = []
+     st.session_state["analysis_history"].append({
+-        "PayPal Order ID": st.session_state.get("paypal_order_id") or "Manual",
+-        "PayPal Order Status": st.session_state.get("paypal_order_status") or "N/A",
+-        "Amount (USD)": amount,
++        **provenance,
+         "Country Mismatch (manual)": country_mismatch,
+         "New Account (manual)": new_account,
+         "Unusual Activity (manual)": unusual_activity,
+@@ -265,7 +212,7 @@ st.caption(
+ if st.button("Generate Simulated Transaction"):
+     simulated_transaction = simulate_paypal_transaction(
+         amount=max(float(amount), 0.01),
+-        currency="USD",
++        currency=currency,
+         country_mismatch=country_mismatch,
+         new_account=new_account,
+         unusual_activity=unusual_activity,
+diff --git a/paypal_sandbox.py b/paypal_sandbox.py
+index fa6bcc8..3d6e63e 100644
+--- a/paypal_sandbox.py
++++ b/paypal_sandbox.py
+@@ -1,102 +1,99 @@
+-import requests
+-import streamlit as st
++"""Sandbox-only API boundary. Never return raw responses on failures."""
++import base64
++import json
++import re
++from urllib.request import Request, build_opener, HTTPRedirectHandler
++from urllib.error import HTTPError, URLError
+ 
+ PAYPAL_API = "https://api-m.sandbox.paypal.com"
+ 
+ 
+-def get_paypal_access_token():
+-    client_id = st.secrets["PAYPAL_CLIENT_ID"]
+-    client_secret = st.secrets["PAYPAL_CLIENT_SECRET"]
+-
+-    response = requests.post(
+-        f"{PAYPAL_API}/v1/oauth2/token",
+-        auth=(client_id, client_secret),
+-        data={"grant_type": "client_credentials"},
+-        headers={"Accept": "application/json"},
+-        timeout=20,
+-    )
+-    response.raise_for_status()   
+-    return response.json()["access_token"]
+-def test_paypal_connection():
+-    try:
+-        token = get_paypal_access_token()
+-        if token:
+-            return True, "PayPal Sandbox authentication successful."
+-        return False, "PayPal did not return an access token."
+-    except requests.HTTPError as error:
+-        status = error.response.status_code if error.response is not None else "unknown"
+-        return False, f"PayPal authentication failed. HTTP status: {status}"
+-    except requests.RequestException:
+-        return False, "Network error while connecting to PayPal Sandbox."
+-    except (KeyError, ValueError):
+-        return False, "Missing configuration or invalid PayPal response."
+-    except Exception:
+-        return False, "PayPal configuration error."
++class _NoRedirect(HTTPRedirectHandler):
++    def redirect_request(self, request, response, code, message, headers, new_url):
++        # Do not forward Authorization to a redirected destination.
++        return None
+ 
+-    
+ 
+-def get_paypal_sandbox_order(order_id):
+-    """Retrieve a PayPal Sandbox order without capturing payment."""
+-    if not order_id or not order_id.strip():
+-        return False, "Order ID is required."
++def urlopen(request, timeout):
++    return build_opener(_NoRedirect()).open(request, timeout=timeout)
+ 
+-    try:
+-        token = get_paypal_access_token()
+ 
+-        response = requests.get(
+-            f"{PAYPAL_API}/v2/checkout/orders/{order_id.strip()}",
+-            headers={
+-                "Authorization": f"Bearer {token}",
+-                "Content-Type": "application/json",
+-            },
+-            timeout=20,
+-        )
++class PayPalError(Exception):
++    """Safe, customer-visible API failure."""
+ 
+-        response.raise_for_status()
+-        return True, response.json()
+ 
+-    except requests.HTTPError as error:
+-        status = error.response.status_code
+-        return False, f"PayPal API error: HTTP {status}"
++def _request(path, headers, payload=None, form=False):
++    data = payload.encode() if form else (json.dumps(payload).encode() if payload is not None else None)
++    request = Request(PAYPAL_API + path, data=data, headers=headers)
++    try:
++        with urlopen(request, timeout=20) as response:
++            result = json.load(response)
++        if not isinstance(result, dict):
++            raise ValueError
++        return result
++    except HTTPError as error:
++        raise PayPalError(f"PayPal Sandbox request failed (HTTP {error.code}).") from None
++    except (URLError, TimeoutError, OSError):
++        raise PayPalError("Network error while connecting to PayPal Sandbox.") from None
++    except (ValueError, TypeError):
++        raise PayPalError("PayPal Sandbox returned an invalid response.") from None
+ 
+-    except requests.RequestException:
+-        return False, "Network error while retrieving the order."
+ 
++def get_paypal_access_token():
++    try:
++        import streamlit as st
++        client_id = st.secrets["PAYPAL_CLIENT_ID"]
++        client_secret = st.secrets["PAYPAL_CLIENT_SECRET"]
++        if not client_id or not client_secret:
++            raise ValueError
++        auth = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+     except Exception:
+-        return False, "Unable to retrieve the PayPal Sandbox order."
+-def create_paypal_sandbox_order():
++        raise PayPalError("PayPal Sandbox credentials are not configured.") from None
++    result = _request("/v1/oauth2/token", {
++        "Authorization": f"Basic {auth}", "Accept": "application/json",
++        "Content-Type": "application/x-www-form-urlencoded",
++    }, "grant_type=client_credentials", form=True)
++    token = result.get("access_token")
++    if not isinstance(token, str) or not token:
++        raise PayPalError("PayPal Sandbox did not return a valid access token.")
++    return token
++
++
++def _safe_call(operation):
+     try:
++        return True, operation()
++    except PayPalError as error:
++        return False, str(error)
++    except Exception:
++        return False, "Unable to complete the PayPal Sandbox request."
++
++
++def test_paypal_connection():
++    def authenticate():
++        get_paypal_access_token()
++        return "PayPal Sandbox authentication successful."
++    return _safe_call(authenticate)
++
++
++def get_paypal_sandbox_order(order_id):
++    if not isinstance(order_id, str) or not re.fullmatch(r"[A-Za-z0-9-]{1,64}", order_id.strip()):
++        return False, "A valid Order ID is required."
++    def retrieve():
+         token = get_paypal_access_token()
++        return _request(f"/v2/checkout/orders/{order_id.strip()}", {
++            "Authorization": f"Bearer {token}", "Accept": "application/json"})
++    return _safe_call(retrieve)
+ 
+-        response = requests.post(
+-            f"{PAYPAL_API}/v2/checkout/orders",
+-            headers={
+-                "Authorization": f"Bearer {token}",
+-                "Content-Type": "application/json",
+-                "Prefer": "return=representation"
+-            },
+-            json={
+-                "intent": "CAPTURE",
+-                "purchase_units": [
+-                    {
+-                        "amount": {
+-                            "currency_code": "USD",
+-                            "value": "1.00"
+-                        }
+-                    }
+-                ]
+-            },
+-            timeout=20
+-        )
+-
+-        response.raise_for_status()
+-        return True, response.json()
+-
+-    except requests.HTTPError as error:
+-        return False, f"PayPal HTTP error: {error.response.status_code}"
+-
+-    except requests.RequestException:
+-        return False, "PayPal network error."
+ 
+-    except Exception:
+-        return False, "Unable to create Sandbox order."
++def create_paypal_sandbox_order():
++    def create():
++        token = get_paypal_access_token()
++        result = _request("/v2/checkout/orders", {
++            "Authorization": f"Bearer {token}", "Content-Type": "application/json",
++            "Prefer": "return=representation",
++        }, {"intent": "CAPTURE", "purchase_units": [
++            {"amount": {"currency_code": "USD", "value": "1.00"}}]})
++        if not isinstance(result.get("id"), str) or not result["id"]:
++            raise PayPalError("PayPal Sandbox returned an invalid order.")
++        return result
++    return _safe_call(create)
+diff --git a/scoring.py b/scoring.py
+new file mode 100644
+index 0000000..d08cbe9
+--- /dev/null
++++ b/scoring.py
+@@ -0,0 +1,45 @@
++"""Pure scoring functions; non-USD amounts require conversion before USD scoring."""
++from transactions import money, currency_code
++
++
++def rule_score(amount, currency, country_mismatch=False, new_account=False, unusual_activity=False):
++    amount, currency = money(amount), currency_code(currency)
++    if currency != "USD":
++        raise ValueError("Scoring supports USD only; no exchange rate is assumed.")
++    rules = [(amount > 1000, 25, "Large transaction amount"),
++             (country_mismatch, 30, "Country mismatch"),
++             (new_account, 20, "New customer account"),
++             (unusual_activity, 25, "Unusual transaction activity")]
++    return sum(weight for active, weight, _ in rules if active), [reason for active, _, reason in rules if active]
++
++
++def risk_decision(score, is_anomaly):
++    if score >= 60:
++        return "HIGH RISK", "Manual review"
++    if is_anomaly:
++        return "ANOMALY DETECTED", "Review unusual transaction"
++    if score >= 30:
++        return "MEDIUM RISK", "Additional verification"
++    return "LOW INDICATED RISK", "Routine processing (demo only)"
++
++
++def train_model():
++    import numpy as np
++    from sklearn.ensemble import IsolationForest
++    rng = np.random.default_rng(42)
++    n = 3000
++    data = np.column_stack([rng.lognormal(4.5, 1.0, n),
++                            rng.binomial(1, .10, n), rng.binomial(1, .20, n),
++                            rng.binomial(1, .08, n)])
++    return IsolationForest(n_estimators=150, contamination=.08, random_state=42).fit(data)
++
++
++def score_transaction(model, amount, currency, country_mismatch=False, new_account=False, unusual_activity=False):
++    import math
++    score, reasons = rule_score(amount, currency, country_mismatch, new_account, unusual_activity)
++    features = [[float(money(amount)), int(country_mismatch), int(new_account), int(unusual_activity)]]
++    anomaly = bool(model.predict(features)[0] == -1)
++    decision_score = float(model.decision_function(features)[0])
++    if not math.isfinite(decision_score):
++        raise ValueError("Invalid model result.")
++    return score, reasons, anomaly, decision_score
+diff --git a/tests/test_app_flows.py b/tests/test_app_flows.py
+new file mode 100644
+index 0000000..dd50cea
+--- /dev/null
++++ b/tests/test_app_flows.py
+@@ -0,0 +1,110 @@
++"""Application flow tests with a minimal Streamlit harness, not browser tests."""
++import runpy
++import sys
++import unittest
++from pathlib import Path
++from unittest.mock import patch
++from types import SimpleNamespace
++from test_phase1 import order, streamlit_module
++
++APP = Path(__file__).resolve().parents[1] / 'app.py'
++
++
++class UI:
++    def __init__(self):
++        self.session_state = {}
++        self.inputs = {}
++        self.clicked = ''
++        self.messages = []
++
++    def __enter__(self):
++        return self
++
++    def __exit__(self, *args):
++        return False
++
++    def __getattr__(self, name):
++        return lambda *args, **kwargs: self.messages.append((name, args))
++
++    def spinner(self, *args):
++        return self
++
++    def columns(self, count):
++        return [self] * count
++
++    def cache_resource(self, function):
++        return function
++
++    def button(self, label, disabled=False, **kwargs):
++        return label == self.clicked and not disabled
++
++    def text_input(self, label, key=None):
++        return self.session_state.get(key, '') if key else self.inputs.get(label, '')
++
++    def number_input(self, label, key=None, **kwargs):
++        return self.session_state[key]
++
++    def checkbox(self, label):
++        return self.inputs.get(label, False)
++
++
++class AppFlows(unittest.TestCase):
++    def setUp(self):
++        self.ui = UI()
++        self.model = SimpleNamespace(predict=lambda x: [1], decision_function=lambda x: [.1])
++
++    def run_app(self, click='', response=None):
++        self.ui.clicked = click
++        with streamlit_module(self.ui), \
++             patch('scoring.train_model', return_value=self.model), \
++             patch('paypal_sandbox.get_paypal_sandbox_order', return_value=response):
++            runpy.run_path(str(APP))
++
++    def load(self, currency='USD'):
++        self.ui.inputs['Enter PayPal Sandbox Order ID'] = 'ORDER1'
++        self.run_app('Get PayPal Sandbox Order', (True, order(currency)))
++
++    def analyze(self):
++        self.run_app('Analyze Transaction')
++        return self.ui.session_state['analysis_history'][-1]
++
++    def test_lookup_and_history_keep_original_provenance(self):
++        self.load()
++        first = self.analyze()
++        self.assertEqual(first['PayPal Order ID'], 'ORDER1')
++        self.ui.session_state['transaction_amount'] = 99.0
++        second = self.analyze()
++        self.assertEqual(second['PayPal Order ID'], 'Manual')
++        self.assertEqual(first['Amount'], '12.34')
++        self.ui.session_state['transaction_amount'] = 12.34
++        self.assertEqual(self.analyze()['PayPal Order ID'], 'Manual')
++
++    def test_failed_lookup_clears_previous_order(self):
++        self.load()
++        self.run_app('Get PayPal Sandbox Order', (False, 'Network error.'))
++        self.assertEqual(self.analyze()['PayPal Order ID'], 'Manual')
++
++    def test_malformed_lookup_clears_previous_order(self):
++        self.load()
++        self.run_app('Get PayPal Sandbox Order', (True, {}))
++        self.assertEqual(self.analyze()['PayPal Order ID'], 'Manual')
++
++    def test_editing_lookup_id_detaches_old_order(self):
++        self.load()
++        self.ui.inputs['Enter PayPal Sandbox Order ID'] = 'OTHER'
++        self.assertEqual(self.analyze()['PayPal Order ID'], 'Manual')
++
++    def test_foreign_currency_is_displayed_and_scoring_disabled(self):
++        self.load('EUR')
++        self.assertEqual(self.ui.session_state['transaction_currency'], 'EUR')
++        self.run_app('Analyze Transaction')
++        self.assertNotIn('analysis_history', self.ui.session_state)
++        self.ui.session_state['transaction_currency'] = 'USD'
++        self.assertEqual(self.analyze()['PayPal Order ID'], 'Manual')
++
++    def test_simulator_retains_currency(self):
++        self.load('EUR')
++        self.run_app('Generate Simulated Transaction')
++        generated = [args[0] for name, args in self.ui.messages
++                     if name == 'json' and args and args[0].get('source') == 'SIMULATED_PAYPAL']
++        self.assertEqual(generated[-1]['amount']['currency_code'], 'EUR')
+diff --git a/tests/test_phase1.py b/tests/test_phase1.py
+new file mode 100644
+index 0000000..5fd074b
+--- /dev/null
++++ b/tests/test_phase1.py
+@@ -0,0 +1,165 @@
++import io
++import json
++import unittest
++import sys
++from contextlib import contextmanager
++from dataclasses import FrozenInstanceError
++from unittest.mock import patch
++from urllib.error import HTTPError, URLError
++
++import paypal_sandbox as api
++from scoring import rule_score, risk_decision, score_transaction, train_model
++from transactions import money, parse_order, transaction_record, active_order
++
++
++@contextmanager
++def streamlit_module(fake):
++    previous = sys.modules.get('streamlit')
++    sys.modules['streamlit'] = fake
++    try:
++        yield
++    finally:
++        if previous is None:
++            sys.modules.pop('streamlit', None)
++        else:
++            sys.modules['streamlit'] = previous
++
++
++def order(currency='USD', value='12.34', order_id='ORDER1'):
++    return {'id': order_id, 'status': 'CREATED', 'purchase_units': [
++        {'amount': {'currency_code': currency, 'value': value}}]}
++
++
++class CurrencyTests(unittest.TestCase):
++    def test_currency_preserved(self):
++        for currency in ['USD', 'EUR', 'GBP', 'JPY']:
++            snapshot = parse_order(order(currency), 'ORDER1')
++            self.assertEqual(snapshot.currency, currency)
++            self.assertEqual(transaction_record('12.34', currency, snapshot)['Currency'], currency)
++
++    def test_bad_amounts(self):
++        for value in ['NaN', 'Infinity', '-1', None, 'bad']:
++            with self.subTest(value=value), self.assertRaises(ValueError):
++                money(value)
++
++    def test_ambiguous_or_missing_money_rejected(self):
++        for payload in [{}, order(value='NaN'), order(currency=''), order(order_id='OTHER'),
++                        dict(order(), purchase_units=[]),
++                        dict(order(), purchase_units=order()['purchase_units'] * 2)]:
++            with self.subTest(payload=payload), self.assertRaises(ValueError):
++                parse_order(payload, 'ORDER1')
++
++    def test_non_usd_not_scored(self):
++        for currency in ['EUR', 'GBP', 'JPY']:
++            with self.assertRaises(ValueError):
++                rule_score(1500, currency)
++
++
++class AttributionTests(unittest.TestCase):
++    def test_snapshot_and_history_immutable(self):
++        payload = order()
++        snapshot = parse_order(payload, 'ORDER1')
++        record = transaction_record('12.34', 'USD', snapshot)
++        payload['id'] = 'OTHER'
++        payload['purchase_units'][0]['amount']['value'] = '99'
++        with self.assertRaises(FrozenInstanceError):
++            snapshot.order_id = 'OTHER'
++        self.assertEqual(record['PayPal Order ID'], 'ORDER1')
++        self.assertEqual(record['Amount'], '12.34')
++
++    def test_failed_lookup_or_edits_cannot_reuse_order(self):
++        for edit in [dict(lookup_started=True), dict(requested_id='OTHER'),
++                     dict(amount='99'), dict(currency='EUR')]:
++            state = {'order_snapshot': parse_order(order(), 'ORDER1')}
++            previous = transaction_record('12.34', 'USD', state['order_snapshot'])
++            self.assertIsNone(active_order(state, **edit))
++            self.assertIsNone(active_order(state, requested_id='ORDER1', amount='12.34', currency='USD'))
++            self.assertEqual(previous['PayPal Order ID'], 'ORDER1')
++
++    def test_edits_and_no_snapshot_are_manual(self):
++        snapshot = parse_order(order(), 'ORDER1')
++        for amount, currency, source in [('13', 'USD', snapshot), ('12.34', 'EUR', snapshot),
++                                         ('12.34', 'USD', None)]:
++            self.assertEqual(transaction_record(amount, currency, source)['PayPal Order ID'], 'Manual')
++
++
++class ScoringTests(unittest.TestCase):
++    def test_rule_boundaries(self):
++        self.assertEqual(rule_score(1000, 'USD'), (0, []))
++        self.assertEqual(rule_score('1000.01', 'USD')[0], 25)
++        score, reasons = rule_score(1001, 'USD', True, True, True)
++        self.assertEqual(score, 100)
++        self.assertEqual(len(reasons), 4)
++
++    def test_decision_precedence(self):
++        for score, anomaly, expected in [(60, True, 'HIGH RISK'), (59, True, 'ANOMALY DETECTED'),
++                                         (30, False, 'MEDIUM RISK'), (29, False, 'LOW INDICATED RISK')]:
++            self.assertEqual(risk_decision(score, anomaly)[0], expected)
++
++    def test_real_model_repeatable(self):
++        model = train_model()
++        self.assertEqual(score_transaction(model, 100, 'USD'), score_transaction(model, 100, 'USD'))
++
++    def test_model_failure_propagates(self):
++        class Broken:
++            def predict(self, features):
++                raise RuntimeError('model unavailable')
++        with self.assertRaises(RuntimeError):
++            score_transaction(Broken(), 100, 'USD')
++
++
++class ApiTests(unittest.TestCase):
++    def test_redirects_cannot_forward_authorization(self):
++        self.assertIsNone(api._NoRedirect().redirect_request(
++            None, None, 302, 'Found', {}, 'https://example.test'))
++
++    def test_network_http_json_failures_sanitized(self):
++        failures = [HTTPError('https://example.test', 401, 'SECRET CUSTOMER', {}, None),
++                    URLError('SECRET CUSTOMER'), TimeoutError('SECRET CUSTOMER')]
++        for failure in failures:
++            with patch.object(api, 'urlopen', side_effect=failure):
++                with self.assertRaises(api.PayPalError) as caught:
++                    api._request('/test', {})
++                self.assertNotIn('SECRET', str(caught.exception))
++        for content in [b'bad SECRET', b'[]', b'null']:
++            with patch.object(api, 'urlopen', return_value=io.BytesIO(content)):
++                with self.assertRaises(api.PayPalError):
++                    api._request('/test', {})
++
++    def test_unexpected_errors_sanitized_on_all_operations(self):
++        for operation in [api.test_paypal_connection, api.create_paypal_sandbox_order,
++                          lambda: api.get_paypal_sandbox_order('ORDER1')]:
++            with patch.object(api, 'get_paypal_access_token', side_effect=RuntimeError('SECRET CUSTOMER')):
++                success, message = operation()
++                self.assertFalse(success)
++                self.assertNotIn('SECRET', message)
++
++    def test_invalid_id_never_calls_api(self):
++        with patch.object(api, 'get_paypal_access_token') as token:
++            for value in ['', None, '../secrets', 'ABC?customer=1']:
++                self.assertFalse(api.get_paypal_sandbox_order(value)[0])
++            token.assert_not_called()
++
++    def test_lookup_and_create_success(self):
++        with patch.object(api, 'get_paypal_access_token', return_value='FAKE'), patch.object(api, '_request', return_value=order()) as request:
++            self.assertTrue(api.get_paypal_sandbox_order('ORDER1')[0])
++            self.assertTrue(api.create_paypal_sandbox_order()[0])
++            payload = request.call_args.args[2]
++            self.assertEqual(payload['purchase_units'][0]['amount']['currency_code'], 'USD')
++
++    def test_missing_token_rejected(self):
++        import sys
++        from types import SimpleNamespace
++        fake = SimpleNamespace(secrets={'PAYPAL_CLIENT_ID': 'fake', 'PAYPAL_CLIENT_SECRET': 'fake'})
++        with streamlit_module(fake), patch.object(api, '_request', return_value={}):
++            self.assertFalse(api.test_paypal_connection()[0])
++
++    def test_missing_credentials_sanitized(self):
++        import sys
++        from types import SimpleNamespace
++        with streamlit_module(SimpleNamespace(secrets={})):
++            self.assertFalse(api.test_paypal_connection()[0])
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/transactions.py b/transactions.py
+new file mode 100644
+index 0000000..62d1b2b
+--- /dev/null
++++ b/transactions.py
+@@ -0,0 +1,73 @@
++"""Validated money and immutable, session-only order provenance."""
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from decimal import Decimal, InvalidOperation
++import re
++import math
++
++
++def money(value):
++    try:
++        result = Decimal(str(value))
++    except (InvalidOperation, ValueError, TypeError):
++        raise ValueError("Invalid amount.") from None
++    if not result.is_finite() or result < 0 or not math.isfinite(float(result)):
++        raise ValueError("Amount must be finite and nonnegative.")
++    return result
++
++
++def currency_code(value):
++    if not isinstance(value, str) or not re.fullmatch(r"[A-Z]{3}", value):
++        raise ValueError("A three-letter uppercase currency code is required.")
++    return value
++
++
++@dataclass(frozen=True)
++class OrderSnapshot:
++    order_id: str
++    status: str
++    amount: Decimal
++    currency: str
++    retrieved_at: str
++
++
++def parse_order(payload, requested_id):
++    """Only a matching, single-unit order can supply an analysis amount."""
++    try:
++        units = payload["purchase_units"]
++        if payload["id"] != requested_id or not requested_id or len(units) != 1:
++            raise ValueError
++        amount = units[0]["amount"]
++        if payload["status"] not in {"CREATED", "SAVED", "APPROVED", "VOIDED", "COMPLETED", "PAYER_ACTION_REQUIRED"}:
++            raise ValueError
++        return OrderSnapshot(
++            requested_id, str(payload["status"]), money(amount["value"]),
++            currency_code(amount["currency_code"]),
++            datetime.now(timezone.utc).isoformat(),
++        )
++    except (KeyError, IndexError, TypeError, ValueError):
++        raise ValueError("Order must have a matching ID and one valid currency amount.") from None
++
++
++def transaction_record(amount, currency, snapshot=None):
++    amount, currency = money(amount), currency_code(currency)
++    linked = snapshot is not None and amount == snapshot.amount and currency == snapshot.currency
++    return {
++        "Source": "PayPal Sandbox" if linked else "Manual",
++        "PayPal Order ID": snapshot.order_id if linked else "Manual",
++        "PayPal Order Status": snapshot.status if linked else "N/A",
++        "Order Retrieved At": snapshot.retrieved_at if linked else "N/A",
++        "Analyzed At": datetime.now(timezone.utc).isoformat(),
++        "Amount": str(amount), "Currency": currency,
++    }
++
++
++def active_order(state, *, requested_id=None, amount=None, currency=None, lookup_started=False):
++    """Clear stale attribution before I/O or on edits; it cannot reattach itself."""
++    snapshot = state.get("order_snapshot")
++    if snapshot and (lookup_started
++                     or (requested_id is not None and requested_id != snapshot.order_id)
++                     or (amount is not None and money(amount) != snapshot.amount)
++                     or (currency is not None and currency != snapshot.currency)):
++        state.pop("order_snapshot", None)
++    return state.get("order_snapshot")
