@@ -1,9 +1,10 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
-from sklearn.ensemble import IsolationForest
 from paypal_simulator import simulate_paypal_transaction
 from paypal_sandbox import test_paypal_connection, get_paypal_sandbox_order, create_paypal_sandbox_order
+from transactions import parse_order, transaction_record, active_order
+from scoring import train_model, score_transaction, risk_decision
+
 st.set_page_config(
 
     
@@ -33,27 +34,28 @@ order_id = st.text_input(
     "Enter PayPal Sandbox Order ID"
 )
 
+# Editing the lookup ID immediately detaches any previous order.
+active_order(st.session_state, requested_id=order_id.strip())
+
 if st.button("Get PayPal Sandbox Order"):
+    active_order(st.session_state, lookup_started=True)
     if not order_id.strip():
         st.warning("Please enter an Order ID.")
     else:
         success, result = get_paypal_sandbox_order(order_id.strip())
         if success:
-            st.success("Sandbox order retrieved successfully.")
-            st.json(result)
             try:
-                paypal_amount = float(
-                    result["purchase_units"][0]["amount"]["value"]
-                )
-                st.session_state["paypal_order_amount"] = paypal_amount
-
-                st.session_state["paypal_order_id"] = result.get("id", "")
-                st.session_state["paypal_order_status"] = result.get("status", "")
-                st.info(f"PayPal Sandbox amount loaded: ${paypal_amount:.2f}")
-            except (KeyError, IndexError, TypeError, ValueError):
-                st.warning("Order amount could not be extracted.")   
+                snapshot = parse_order(result, order_id.strip())
+                st.session_state["order_snapshot"] = snapshot
+                st.session_state["transaction_amount"] = float(snapshot.amount)
+                st.session_state["transaction_currency"] = snapshot.currency
+                st.success("Sandbox order retrieved successfully.")
+                st.json({"id": snapshot.order_id, "status": snapshot.status,
+                         "amount": str(snapshot.amount), "currency": snapshot.currency})
+            except ValueError:
+                st.warning("Order could not be loaded: expected a matching ID and one valid currency amount.")
         else:
-            st.error(str(result))
+            st.error(result)
 st.subheader("Create PayPal Sandbox Test Order")
 
 if st.button("Create Sandbox Order ($1.00)"):
@@ -63,48 +65,27 @@ if st.button("Create Sandbox Order ($1.00)"):
     if success:
         st.success("Sandbox order created successfully!")
         st.write("Order ID:", result.get("id"))
-        st.json(result)
+        st.json({"id": result.get("id"), "status": result.get("status")})
     else:
         st.error(str(result))
         
-@st.cache_resource
-def train_model():
-    rng = np.random.default_rng(42)
-    n = 3000
-
-    data = np.column_stack([
-        rng.lognormal(4.5, 1.0, n),
-        rng.binomial(1, 0.10, n),
-        rng.binomial(1, 0.20, n),
-        rng.binomial(1, 0.08, n),
-    ])
-
-    model = IsolationForest(
-        n_estimators=150,
-        contamination=0.08,
-        random_state=42
-    )
-
-    model.fit(data)
-    return model
-
-
-model = train_model()
+model = st.cache_resource(train_model)()
 
 st.subheader("Transaction Information")
 st.caption("PayPal Sandbox supplies the order amount, ID and status after lookup. Risk flags below are entered manually; they are not verified by PayPal.")
-if st.session_state.get("paypal_order_id"):
-    st.info(
-        f"PayPal Sandbox Order: "
-        f"{st.session_state['paypal_order_id']} | "
-        f"Status: {st.session_state.get('paypal_order_status', 'Unknown')}"
-    )
-amount = st.number_input(
-    "Transaction amount (USD)",
-    min_value=0.0,
-    value=float(st.session_state.get("paypal_order_amount", 100.0)),
-    step=1.0
-)
+snapshot = st.session_state.get("order_snapshot")
+if snapshot:
+    st.info(f"PayPal Sandbox Order: {snapshot.order_id} | Status: {snapshot.status}")
+if "transaction_amount" not in st.session_state:
+    st.session_state["transaction_amount"] = 100.0
+if "transaction_currency" not in st.session_state:
+    st.session_state["transaction_currency"] = "USD"
+amount = st.number_input("Transaction amount", min_value=0.0, step=1.0, key="transaction_amount")
+currency = st.text_input("Currency code", key="transaction_currency")
+# Once edited, the order is detached even if the user later restores the amount.
+snapshot = active_order(st.session_state, amount=amount, currency=currency)
+if currency != "USD":
+    st.warning("Scoring supports USD only. This amount is not converted or treated as USD.")
 
 country_mismatch = st.checkbox(
     "Customer and payment countries differ"
@@ -118,38 +99,14 @@ unusual_activity = st.checkbox(
     "Unusual transaction activity"
 )
 
-if st.button("Analyze Transaction", type="primary"):
-
-    reasons = []
-    rule_score = 0
-
-    if amount > 1000:
-        rule_score += 25
-        reasons.append("Large transaction amount")
-
-    if country_mismatch:
-        rule_score += 30
-        reasons.append("Country mismatch")
-
-    if new_account:
-        rule_score += 20
-        reasons.append("New customer account")
-
-    if unusual_activity:
-        rule_score += 25
-        reasons.append("Unusual transaction activity")
-
-    features = pd.DataFrame([{
-        "amount": amount,
-        "country_mismatch": int(country_mismatch),
-        "new_account": int(new_account),
-        "unusual_activity": int(unusual_activity)
-    }])
-
-    prediction = model.predict(features)[0]
-    anomaly_score = float(model.decision_function(features)[0])
-
-    is_anomaly = prediction == -1
+if st.button("Analyze Transaction", type="primary", disabled=currency != "USD"):
+    try:
+        provenance = transaction_record(amount, currency, snapshot)
+        rule_score, reasons, is_anomaly, anomaly_score = score_transaction(
+            model, amount, currency, country_mismatch, new_account, unusual_activity)
+    except Exception:
+        st.error("Analysis could not be completed. Check the transaction inputs and try again.")
+        st.stop()
 
     st.divider()
     st.subheader("Risk Analysis Results")
@@ -174,22 +131,13 @@ if st.button("Analyze Transaction", type="primary"):
     st.progress(rule_score / 100)
 
     
-    if rule_score >= 60:
-        risk_level = "HIGH RISK"
-        recommended_action = "Manual review"
+    risk_level, recommended_action = risk_decision(rule_score, is_anomaly)
+    if risk_level == "HIGH RISK":
         st.error("HIGH RISK — Manual review recommended")
-    elif is_anomaly:
-        risk_level = "ANOMALY DETECTED"
-        recommended_action = "Review unusual transaction"
-        st.warning("ANOMALY DETECTED — Review recommended")
-    elif rule_score >= 30:
-        risk_level = "MEDIUM RISK"
-        recommended_action = "Additional verification"
-        st.warning("MEDIUM RISK — Additional verification")
+    elif risk_level == "LOW INDICATED RISK":
+        st.success(risk_level)
     else:
-        risk_level = "LOW INDICATED RISK"
-        recommended_action = "Routine processing (demo only)"
-        st.success("LOW INDICATED RISK")
+        st.warning(f"{risk_level} — {recommended_action}")
     if is_anomaly:
         st.warning(
             "The machine learning model also identified "
@@ -208,7 +156,8 @@ if st.button("Analyze Transaction", type="primary"):
     st.subheader("Analysis Summary")
 
     summary_df = pd.DataFrame([{
-        "Amount (USD)": amount,
+        "Amount": amount,
+        "Currency": currency,
         "Rule Score": rule_score,
         "ML Anomaly": "Yes" if is_anomaly else "No",
         "Recommended Action": recommended_action
@@ -222,9 +171,7 @@ if st.button("Analyze Transaction", type="primary"):
     if "analysis_history" not in st.session_state:
         st.session_state["analysis_history"] = []
     st.session_state["analysis_history"].append({
-        "PayPal Order ID": st.session_state.get("paypal_order_id") or "Manual",
-        "PayPal Order Status": st.session_state.get("paypal_order_status") or "N/A",
-        "Amount (USD)": amount,
+        **provenance,
         "Country Mismatch (manual)": country_mismatch,
         "New Account (manual)": new_account,
         "Unusual Activity (manual)": unusual_activity,
@@ -265,7 +212,7 @@ st.caption(
 if st.button("Generate Simulated Transaction"):
     simulated_transaction = simulate_paypal_transaction(
         amount=max(float(amount), 0.01),
-        currency="USD",
+        currency=currency,
         country_mismatch=country_mismatch,
         new_account=new_account,
         unusual_activity=unusual_activity,
