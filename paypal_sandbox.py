@@ -4,8 +4,10 @@ import json
 import re
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError, URLError
+from transactions import ORDER_STATUSES, parse_order
 
 PAYPAL_API = "https://api-m.sandbox.paypal.com"
+MAX_RESPONSE_BYTES = 1024 * 1024
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -27,7 +29,10 @@ def _request(path, headers, payload=None, form=False):
     request = Request(PAYPAL_API + path, data=data, headers=headers)
     try:
         with urlopen(request, timeout=20) as response:
-            result = json.load(response)
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
+            if len(raw) > MAX_RESPONSE_BYTES:
+                raise ValueError
+            result = json.loads(raw)
         if not isinstance(result, dict):
             raise ValueError
         return result
@@ -44,7 +49,7 @@ def get_paypal_access_token():
         import streamlit as st
         client_id = st.secrets["PAYPAL_CLIENT_ID"]
         client_secret = st.secrets["PAYPAL_CLIENT_SECRET"]
-        if not client_id or not client_secret:
+        if not isinstance(client_id, str) or not isinstance(client_secret, str) or not client_id or not client_secret:
             raise ValueError
         auth = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
     except Exception:
@@ -80,8 +85,13 @@ def get_paypal_sandbox_order(order_id):
         return False, "A valid Order ID is required."
     def retrieve():
         token = get_paypal_access_token()
-        return _request(f"/v2/checkout/orders/{order_id.strip()}", {
+        result = _request(f"/v2/checkout/orders/{order_id.strip()}", {
             "Authorization": f"Bearer {token}", "Accept": "application/json"})
+        snapshot = parse_order(result, order_id.strip())
+        # Retain only the fields needed for order attribution. Customer details,
+        # payer emails and addresses do not cross this application boundary.
+        return {"id": snapshot.order_id, "status": snapshot.status, "purchase_units": [
+            {"amount": {"value": str(snapshot.amount), "currency_code": snapshot.currency}}]}
     return _safe_call(retrieve)
 
 
@@ -93,7 +103,9 @@ def create_paypal_sandbox_order():
             "Prefer": "return=representation",
         }, {"intent": "CAPTURE", "purchase_units": [
             {"amount": {"currency_code": "USD", "value": "1.00"}}]})
-        if not isinstance(result.get("id"), str) or not result["id"]:
+        if (not isinstance(result.get("id"), str)
+                or not re.fullmatch(r"[A-Za-z0-9-]{1,64}", result["id"])
+                or result.get("status") not in ORDER_STATUSES):
             raise PayPalError("PayPal Sandbox returned an invalid order.")
-        return result
+        return {"id": result["id"], "status": result["status"]}
     return _safe_call(create)

@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 from paypal_simulator import simulate_paypal_transaction
 from paypal_sandbox import test_paypal_connection, get_paypal_sandbox_order, create_paypal_sandbox_order
-from transactions import parse_order, transaction_record, active_order
-from scoring import train_model, score_transaction, risk_decision
+from transactions import parse_order, active_order
+from scoring import train_model, risk_decision
+from investigations import build_report, csv_export, json_export
+from investigation_ui import render_investigations
 
 st.set_page_config(
 
@@ -101,10 +103,16 @@ unusual_activity = st.checkbox(
 
 if st.button("Analyze Transaction", type="primary", disabled=currency != "USD"):
     try:
-        provenance = transaction_record(amount, currency, snapshot)
-        rule_score, reasons, is_anomaly, anomaly_score = score_transaction(
-            model, amount, currency, country_mismatch, new_account, unusual_activity)
+        report = build_report(model, amount, currency, country_mismatch,
+                              new_account, unusual_activity, snapshot)
+        provenance = report["provenance"]
+        rule_score = report["rule_score"]
+        reasons = [item["reason"] for item in report["triggered_rules"]]
+        is_anomaly = report["is_anomaly"]
+        anomaly_score = report["anomaly_decision_score"]
+        st.session_state["latest_risk_report"] = report
     except Exception:
+        st.session_state.pop("latest_risk_report", None)
         st.error("Analysis could not be completed. Check the transaction inputs and try again.")
         st.stop()
 
@@ -153,6 +161,12 @@ if st.button("Analyze Transaction", type="primary", disabled=currency != "USD"):
     else:
         st.write("No configured rule-based risk indicators.")
 
+    st.caption("Alert sources describe input provenance. Manual flags are not verified by PayPal; model alerts only identify synthetic-data anomalies.")
+    st.dataframe(report["rule_breakdown"], use_container_width=True)
+    st.write("Decision basis:", report["decision_basis"])
+    if report["alerts"]:
+        st.dataframe(report["alerts"], use_container_width=True)
+
     st.subheader("Analysis Summary")
 
     summary_df = pd.DataFrame([{
@@ -172,6 +186,7 @@ if st.button("Analyze Transaction", type="primary", disabled=currency != "USD"):
         st.session_state["analysis_history"] = []
     st.session_state["analysis_history"].append({
         **provenance,
+        "Report ID": report["report_id"],
         "Country Mismatch (manual)": country_mismatch,
         "New Account (manual)": new_account,
         "Unusual Activity (manual)": unusual_activity,
@@ -197,7 +212,7 @@ if st.session_state.get("analysis_history"):
     st.dataframe(history_df, use_container_width=True)
     st.download_button(
         "Download Analysis History (CSV)",
-        data=history_df.to_csv(index=False).encode("utf-8"),
+        data=csv_export(st.session_state["analysis_history"]),
         file_name="fraudshield_analysis_history.csv",
         mime="text/csv",
     )
@@ -218,3 +233,13 @@ if st.button("Generate Simulated Transaction"):
         unusual_activity=unusual_activity,
     )
     st.json(simulated_transaction)
+
+# Persist the latest report across reruns so case attachment is explicit.
+if st.session_state.get("latest_risk_report"):
+    st.subheader("Explainable Risk Report")
+    st.json(st.session_state["latest_risk_report"])
+    st.download_button("Download risk report JSON",
+                       json_export(st.session_state["latest_risk_report"]),
+                       "fraudshield_risk_report.json", "application/json")
+
+render_investigations(st, model)
