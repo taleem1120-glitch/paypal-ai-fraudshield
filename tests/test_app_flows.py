@@ -57,6 +57,7 @@ class AppFlows(unittest.TestCase):
         self.ui.clicked = click
         with streamlit_module(self.ui), \
              patch('scoring.train_model', return_value=self.model), \
+             patch('investigation_ui.render_investigations'), \
              patch('paypal_sandbox.get_paypal_sandbox_order', return_value=response):
             runpy.run_path(str(APP))
 

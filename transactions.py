@@ -4,6 +4,10 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import re
 import math
+from uuid import uuid4
+
+
+ORDER_STATUSES = frozenset({"CREATED", "SAVED", "APPROVED", "VOIDED", "COMPLETED", "PAYER_ACTION_REQUIRED"})
 
 
 def money(value):
@@ -38,7 +42,7 @@ def parse_order(payload, requested_id):
         if payload["id"] != requested_id or not requested_id or len(units) != 1:
             raise ValueError
         amount = units[0]["amount"]
-        if payload["status"] not in {"CREATED", "SAVED", "APPROVED", "VOIDED", "COMPLETED", "PAYER_ACTION_REQUIRED"}:
+        if payload["status"] not in ORDER_STATUSES:
             raise ValueError
         return OrderSnapshot(
             requested_id, str(payload["status"]), money(amount["value"]),
@@ -53,6 +57,7 @@ def transaction_record(amount, currency, snapshot=None):
     amount, currency = money(amount), currency_code(currency)
     linked = snapshot is not None and amount == snapshot.amount and currency == snapshot.currency
     return {
+        "Transaction ID": str(uuid4()),
         "Source": "PayPal Sandbox" if linked else "Manual",
         "PayPal Order ID": snapshot.order_id if linked else "Manual",
         "PayPal Order Status": snapshot.status if linked else "N/A",
