@@ -237,6 +237,36 @@ if st.button("Analyze Transaction", type="primary", disabled=currency != "USD"):
     })
 
     
+    # Phase 3: Create an audit report for this analysis.
+    from audit_reporting import create_audit_report, export_audit_json
+
+    audit_report = create_audit_report(
+        provenance=provenance,
+        rule_score=rule_score,
+        anomaly=is_anomaly,
+        anomaly_score=anomaly_score,
+        risk_level=risk_level,
+        recommended_action=recommended_action,
+        reasons=reasons,
+    )
+
+    st.session_state["audit_reports"] = (
+        st.session_state.get("audit_reports", [])
+        + [audit_report]
+    )
+
+    st.subheader("Audit Report")
+    st.success("Audit report generated successfully.")
+    st.write("Analysis ID:", audit_report["analysis_id"])
+    st.write("SHA-256:", audit_report["integrity"]["digest"])
+
+    st.download_button(
+        "Download Audit Report (JSON)",
+        data=export_audit_json(audit_report),
+        file_name=f"fraudshield_{audit_report['analysis_id']}.json",
+        mime="application/json",
+    )
+
     st.caption(
         "Important: Isolation Forest detects statistical "
         "anomalies, not proven fraud. Scores are illustrative "
