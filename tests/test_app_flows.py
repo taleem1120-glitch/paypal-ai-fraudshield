@@ -105,6 +105,54 @@ class AppFlows(unittest.TestCase):
         self.ui.session_state['transaction_currency'] = 'USD'
         self.assertEqual(self.analyze()['PayPal Order ID'], 'Manual')
 
+        
+    def test_audit_report_tracks_correct_transaction(self):
+        from audit_reporting import verify_audit_report
+
+        self.load()
+        first_record = self.analyze()
+
+        reports = self.ui.session_state["audit_reports"]
+        first_report = reports[-1]
+
+        self.assertTrue(verify_audit_report(first_report))
+        self.assertEqual(
+            first_report["transaction"]["order_id"],
+            "ORDER1",
+        )
+        self.assertEqual(
+            first_report["transaction"]["amount"],
+            first_record["Amount"],
+        )
+
+        self.ui.session_state["transaction_amount"] = 99.0
+
+        second_record = self.analyze()
+        second_report = self.ui.session_state["audit_reports"][-1]
+
+        self.assertTrue(verify_audit_report(second_report))
+        self.assertEqual(
+            second_report["transaction"]["order_id"],
+            "Manual",
+        )
+        self.assertEqual(
+            second_report["transaction"]["amount"],
+            second_record["Amount"],
+        )
+        self.assertNotEqual(
+            first_report["analysis_id"],
+            second_report["analysis_id"],
+        )
+
+        # The original report must remain unchanged.
+        self.assertTrue(verify_audit_report(first_report))
+        self.assertEqual(
+            first_report["transaction"]["order_id"],
+            "ORDER1",
+        )
+
+        
+
     def test_simulator_retains_currency(self):
         self.load('EUR')
         self.run_app('Generate Simulated Transaction')
