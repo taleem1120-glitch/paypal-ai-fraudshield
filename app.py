@@ -16,6 +16,12 @@ st.set_page_config(
 st.title("🛡️ FraudShield AI")
 st.caption("Explainable Payment Risk Intelligence | AI Prototype")
 
+st.page_link(
+    "pages/1_Evaluation.py",
+    label="Open Evaluation Dashboard",
+    icon="📊"
+)
+
 st.info(
     "Demonstration only. No real payments are processed. "
     "The machine learning model uses synthetic data, "
