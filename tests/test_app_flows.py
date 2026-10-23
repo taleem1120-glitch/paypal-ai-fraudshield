@@ -29,6 +29,9 @@ class UI:
     def spinner(self, *args):
         return self
 
+    def expander(self, label, expanded=False):
+        return self
+
     def columns(self, count):
         return [self] * count
 
