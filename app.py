@@ -16,6 +16,60 @@ st.set_page_config(
 st.title("🛡️ FraudShield AI")
 st.caption("Explainable Payment Risk Intelligence | AI Prototype")
 
+# Offline synthetic risk evaluation
+with st.expander("📊 Synthetic Risk Evaluation", expanded=False):
+    from evaluation import demonstration_cases, evaluate_synthetic_cases
+
+    st.warning(
+        "Demonstration only. Six synthetic scenarios without verified fraud labels. "
+        "Results do not establish real-world fraud detection accuracy."
+    )
+
+    if st.button("Run Synthetic Evaluation"):
+        try:
+            eval_model = st.cache_resource(train_model)()
+            cases = demonstration_cases()
+            summary = evaluate_synthetic_cases(eval_model, cases)
+
+            rows = []
+            for i, case in enumerate(cases, start=1):
+                score, reasons, anomaly, decision_score = score_transaction(
+                    eval_model, *case
+                )
+                risk_level, action = risk_decision(score, anomaly)
+
+                rows.append({
+                    "Scenario": f"Synthetic {i}",
+                    "Amount USD": float(case[0]),
+                    "Rule Score": int(score),
+                    "ML Anomaly": bool(anomaly),
+                    "ML Decision Score": round(float(decision_score), 4),
+                    "Risk Level": risk_level,
+                    "Recommendation": action,
+                    "Explanation": "; ".join(reasons) or "None",
+                })
+
+            st.metric("Synthetic Scenarios", summary.total)
+            st.metric("ML Anomalies", f"{summary.flagged}/{summary.total}")
+            st.metric(
+                "Rule/ML Agreement (not accuracy)",
+                f"{summary.agreement_rate:.0%}"
+            )
+
+            df_eval = pd.DataFrame(rows)
+            st.dataframe(df_eval, width="stretch")
+            st.bar_chart(df_eval.set_index("Scenario")[["Rule Score"]])
+
+            st.download_button(
+                "Download Evaluation CSV",
+                data=df_eval.to_csv(index=False).encode("utf-8"),
+                file_name="fraudshield_evaluation.csv",
+                mime="text/csv",
+            )
+
+        except (ValueError, TypeError, ArithmeticError):
+            st.error("Synthetic evaluation could not be completed.")
+
 st.info(
     "Demonstration only. No real payments are processed. "
     "The machine learning model uses synthetic data, "
