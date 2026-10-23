@@ -32,7 +32,14 @@ def _request(path, headers, payload=None, form=False):
             raise ValueError
         return result
     except HTTPError as error:
-        raise PayPalError(f"PayPal Sandbox request failed (HTTP {error.code}).") from None
+                if error.code == 401:
+            raise PayPalError(
+                "PayPal Sandbox authentication failed (HTTP 401). "
+                "The credentials were rejected by PayPal."
+            ) from None
+        raise PayPalError(
+            f"PayPal Sandbox request failed (HTTP {error.code})."
+        ) from None
     except (URLError, TimeoutError, OSError):
         raise PayPalError("Network error while connecting to PayPal Sandbox.") from None
     except (ValueError, TypeError):
