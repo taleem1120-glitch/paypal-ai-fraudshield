@@ -315,7 +315,10 @@ with st.expander("Risk Intelligence Lab — synthetic evidence only", expanded=F
     examples = [explain(item) for item in SCENARIOS]
     st.dataframe(pd.DataFrame(examples), use_container_width=True)
     choice = st.selectbox("Scenario for sensitivity analysis", range(len(SCENARIOS)),
-                          format_func=lambda i: SCENARIOS[i].name)
+                          index=0, format_func=lambda i: SCENARIOS[i].name)
+    # Streamlit test doubles may return None; keep the noninteractive render safe.
+    if choice is None or not isinstance(choice, int) or not (0 <= choice < len(SCENARIOS)):
+        choice = 0
     st.dataframe(pd.DataFrame(counterfactuals(SCENARIOS[choice])),
                  use_container_width=True)
     document = report()
