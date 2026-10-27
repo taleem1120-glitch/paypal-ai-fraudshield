@@ -302,3 +302,28 @@ if st.button("Generate Simulated Transaction"):
         unusual_activity=unusual_activity,
     )
     st.json(simulated_transaction)
+
+
+# FraudShield synthetic intelligence laboratory v1
+with st.expander("Risk Intelligence Lab — synthetic evidence only", expanded=False):
+    from risk_intelligence import SCENARIOS, explain, counterfactuals, report
+    import json
+    st.warning(
+        "Educational scenarios with manual indicators, not verified PayPal fraud "
+        "signals. No real-world detection accuracy or fraud probability is claimed."
+    )
+    examples = [explain(item) for item in SCENARIOS]
+    st.dataframe(pd.DataFrame(examples), use_container_width=True)
+    choice = st.selectbox("Scenario for sensitivity analysis", range(len(SCENARIOS)),
+                          index=0, format_func=lambda i: SCENARIOS[i].name)
+    # Streamlit test doubles may return None; keep the noninteractive render safe.
+    if choice is None or not isinstance(choice, int) or not (0 <= choice < len(SCENARIOS)):
+        choice = 0
+    st.dataframe(pd.DataFrame(counterfactuals(SCENARIOS[choice])),
+                 use_container_width=True)
+    document = report()
+    st.code(document["sha256"], language="text")
+    st.download_button("Download reproducible synthetic report (JSON)",
+                       data=json.dumps(document, indent=2),
+                       file_name="fraudshield_synthetic_lab.json",
+                       mime="application/json")
