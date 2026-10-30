@@ -61,12 +61,23 @@ def create_audit_report(
     risk_level,
     recommended_action,
     reasons,
+    manual_indicators=None,
 ):
     """Create an independent audit report.
 
     Records supplied analysis information without
     independently verifying PayPal transactions.
     """
+
+    if manual_indicators is None:
+        manual_indicators = {}
+    allowed_indicators = (
+        "country_mismatch", "new_account", "unusual_activity"
+    )
+    if (not isinstance(manual_indicators, dict)
+            or any(key not in allowed_indicators for key in manual_indicators)
+            or any(type(value) is not bool for value in manual_indicators.values())):
+        raise ValueError("Manual indicators must be named boolean values.")
 
     report = {
         "schema_version": SCHEMA_VERSION,
@@ -102,6 +113,11 @@ def create_audit_report(
                 recommended_action
             ),
             "reasons": list(reasons),
+            "manual_indicators": {
+                key: manual_indicators[key]
+                for key in allowed_indicators if key in manual_indicators
+            },
+            "indicator_source": "User supplied, not verified by PayPal",
         },
         "limitations": (
             "Prototype analysis using synthetic ML "
