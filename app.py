@@ -292,6 +292,23 @@ if st.session_state.get("analysis_history"):
     )
 
 st.divider()
+st.subheader("Verify Exported Audit Report")
+st.caption(
+    "Offline digest check only. A matching SHA-256 digest does not prove "
+    "report authorship, PayPal verification, or real-world fraud accuracy."
+)
+uploaded_audit = st.file_uploader(
+    "Choose a FraudShield audit JSON file", type=["json"], key="audit_verifier"
+)
+if uploaded_audit is not None:
+    from audit_verification import verify_uploaded_audit
+    valid, message = verify_uploaded_audit(uploaded_audit.getvalue())
+    if valid:
+        st.success(message)
+    else:
+        st.error(message)
+
+st.divider()
 st.subheader("PayPal-Style Transaction Simulator")
 st.caption(
     "Generates fictional transactions for demonstration only. "
