@@ -25,6 +25,11 @@ class ReportIntegrityTests(unittest.TestCase):
             risk_level="HIGH RISK",
             recommended_action="Manual review",
             reasons=["Country mismatch", "New customer account"],
+            manual_indicators={
+                "country_mismatch": True,
+                "new_account": True,
+                "unusual_activity": False,
+            },
         )
 
     def test_valid_audit_report_verifies(self):
@@ -54,6 +59,28 @@ class ReportIntegrityTests(unittest.TestCase):
         document = self.make_report()
         document["integrity"]["digest"] = "0" * 64
         self.assertFalse(verify_audit_report(document))
+
+    def test_indicator_inputs_are_recorded(self):
+        document = self.make_report()
+        self.assertEqual(document["risk_analysis"]["manual_indicators"], {
+            "country_mismatch": True,
+            "new_account": True,
+            "unusual_activity": False,
+        })
+        self.assertIn("not verified", document["risk_analysis"]["indicator_source"])
+        self.assertTrue(verify_audit_report(document))
+
+    def test_indicator_tampering_is_detected(self):
+        document = self.make_report()
+        document["risk_analysis"]["manual_indicators"]["country_mismatch"] = False
+        self.assertFalse(verify_audit_report(document))
+
+    def test_invalid_indicator_value_is_rejected(self):
+        with self.assertRaises(ValueError):
+            create_audit_report(
+                {}, 0, False, 0.1, "LOW INDICATED RISK", "None", [],
+                manual_indicators={"country_mismatch": "yes"},
+            )
 
     def test_valid_synthetic_report_verifies(self):
         self.assertTrue(verify_synthetic(synthetic_report()))
