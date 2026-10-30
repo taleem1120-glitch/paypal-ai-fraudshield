@@ -248,6 +248,11 @@ if st.button("Analyze Transaction", type="primary", disabled=currency != "USD"):
         risk_level=risk_level,
         recommended_action=recommended_action,
         reasons=reasons,
+        manual_indicators={
+            "country_mismatch": country_mismatch,
+            "new_account": new_account,
+            "unusual_activity": unusual_activity,
+        },
     )
 
     st.session_state["audit_reports"] = (
@@ -285,6 +290,23 @@ if st.session_state.get("analysis_history"):
         file_name="fraudshield_analysis_history.csv",
         mime="text/csv",
     )
+
+st.divider()
+st.subheader("Verify Exported Audit Report")
+st.caption(
+    "Offline digest check only. A matching SHA-256 digest does not prove "
+    "report authorship, PayPal verification, or real-world fraud accuracy."
+)
+uploaded_audit = st.file_uploader(
+    "Choose a FraudShield audit JSON file", type=["json"], key="audit_verifier"
+)
+if uploaded_audit is not None:
+    from audit_verification import verify_uploaded_audit
+    valid, message = verify_uploaded_audit(uploaded_audit.getvalue())
+    if valid:
+        st.success(message)
+    else:
+        st.error(message)
 
 st.divider()
 st.subheader("PayPal-Style Transaction Simulator")
