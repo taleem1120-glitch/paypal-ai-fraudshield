@@ -248,6 +248,11 @@ if st.button("Analyze Transaction", type="primary", disabled=currency != "USD"):
         risk_level=risk_level,
         recommended_action=recommended_action,
         reasons=reasons,
+        manual_indicators={
+            "country_mismatch": country_mismatch,
+            "new_account": new_account,
+            "unusual_activity": unusual_activity,
+        },
     )
 
     st.session_state["audit_reports"] = (
