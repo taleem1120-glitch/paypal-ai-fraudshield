@@ -12,6 +12,8 @@ Live Demo: https://paypal-ai-fraudshield.streamlit.app/
 
 Source Code: https://github.com/taleem1120-glitch/paypal-ai-fraudshield
 
+Submission Demo Video: https://youtu.be/qMST3nHPRko
+
 Key Features
 
 - PayPal Sandbox OAuth authentication
