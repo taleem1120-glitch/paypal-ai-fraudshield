@@ -7,7 +7,7 @@
 
 ## Elevator pitch (English)
 
-FraudShield AI makes payment-risk triage understandable. It combines live PayPal Sandbox order retrieval with explainable risk rules, synthetic-data anomaly detection and verifiable JSON audit exports. The prototype helps demonstrate how a payment analyst might investigate unusual checkout patterns and document a human-review recommendation without automatically blocking payments.
+FraudShield AI makes payment-risk triage understandable. Its prototype includes PayPal Sandbox order-retrieval integration, explainable risk rules, synthetic-data anomaly detection and downloadable JSON audit exports. Live Sandbox connectivity must be verified separately before being demonstrated as working. The prototype helps demonstrate how a payment analyst might investigate unusual checkout patterns and document a human-review recommendation without automatically blocking payments.
 
 ## Inspiration
 
@@ -27,7 +27,7 @@ Connecting order API data to a risk workflow without confusing a created test or
 
 ## Accomplishments
 
-A demonstrated end-to-end PayPal Sandbox integration, an interpretable risk review workflow, downloadable audit evidence, reproducible synthetic examples and automated regression gates. The interface identifies manually entered flags as manual, rather than representing them as PayPal-verified signals.
+Implemented PayPal Sandbox order-integration code (live credential-backed behavior requires separate verification), an interpretable risk review workflow, downloadable audit evidence, reproducible synthetic examples and automated regression gates. The interface identifies manually entered flags as manual, rather than representing them as PayPal-verified signals.
 
 ## What we learned
 
@@ -45,33 +45,40 @@ Python, Streamlit, PayPal Sandbox REST API, OAuth 2.0, scikit-learn, Isolation F
 
 paypal, artificial-intelligence, fraud-prevention, fintech, explainable-ai, machine-learning
 
-## Voice-over script (approx. 240 words, target under 2m45s with pauses)
+## Video plan — conditional on live Sandbox access
 
-Payment risk alerts are useful only when people can understand and review them. FraudShield AI is our explainable payment risk intelligence prototype.
+An earlier public short-video URL was shared in outreach:
+https://www.youtube.com/shorts/wGDYJ6QPWKs
 
-First, we connect securely to PayPal Sandbox. We create a one-dollar test order and retrieve its actual order ID, amount, currency, and status. The order is created in the test environment; no real money moves.
+This URL is **not verified as the YouTube link entered in Devpost**, nor has its duration or compliance been verified. Do not replace the submitted video until a new recording has been checked. The official rules require a public YouTube demonstration, preferably under 3 minutes, including genuine operation of the actual software.
 
-Now we analyze that order. With no manually entered warning signs, the rules give a low score. The machine learning model independently checks whether the pattern looks unusual compared with synthetic training examples.
+### Safe narration (English, approximately 2 minutes)
 
-Next, we add three illustrative warning signs: a country mismatch, a new customer account, and unusual activity. The rules now produce a score of seventy-five out of one hundred, recommending human review. The model also flags a statistical anomaly in our demonstration.
+FraudShield AI is a prototype that helps payment analysts explain why a transaction might require manual review. It combines a PayPal Sandbox integration module with an explainable rule engine and machine learning trained on synthetic data.
 
-The app explains which indicators caused the rule score. It creates a downloadable audit record with a SHA-two-fifty-six digest that can detect later changes to the report.
+Here is the interactive application. Its PayPal Sandbox tools are designed to create and retrieve test orders through OAuth, without collecting or transferring real funds.
 
-We also include a risk intelligence lab to compare synthetic scenarios and explore how individual indicators change a risk score.
+**Only if a real, authenticated Sandbox request succeeds on screen:** Here we create a one-dollar Sandbox test order and retrieve its actual order ID, currency, amount and status. CREATED is an order status, not proof of captured payment.
 
-FraudShield AI is not a production fraud detector. The warning signs are manually entered, the model uses synthetic data, and the scores are not validated fraud probabilities. Our goal is to demonstrate transparent, human-centered payment risk analysis using PayPal and AI.
+**If credentials or Sandbox access are unavailable instead:** Live Sandbox access is not configured in this demonstration. The order integration is implemented in code and covered by mocked regression tests, but this screen does not prove a successful PayPal API request. We therefore demonstrate the independent synthetic analysis workflow.
 
-## Recording storyboard
+Next, we enter a fictional transaction and analyze it with no manually selected risk flags. The application shows a rule-based score and a separate Isolation Forest anomaly result. These are different signals and neither establishes real fraud.
 
-- **0:00–0:20** app title and introduction; show the problem and audience.
-- **0:20–0:45** click Test PayPal Sandbox Connection; show success.
-- **0:45–1:15** create $1 Sandbox Order; copy ID, retrieve order; show amount 1.00 USD and CREATED status.
-- **1:15–1:45** keep three flags unchecked; Analyze Transaction; show score 0 and baseline.
-- **1:45–2:15** check all three flags; Analyze Transaction; show score 75 and review recommendation.
-- **2:15–2:35** scroll to reasons and Audit Report; show downloadable JSON and digest.
-- **2:35–2:45** open synthetic Risk Intelligence Lab, show counterfactuals and closing message.
+Now we select illustrative indicators for a new account, country mismatch and unusual activity. These indicators are entered manually; they are not supplied or authenticated by PayPal. We repeat the analysis and inspect the risk explanation and recommended human-review action.
 
-Narration can be replaced by accurate English captions. Record the actual functioning app rather than fabricated screenshots, and hide tokens or credentials. Use original narration and no copyrighted music.
+The app also generates a JSON audit report with a SHA-256 content digest. That digest can detect changes only when compared with a separately trusted reference; it does not certify authorship.
+
+FraudShield AI is an educational, synthetic-only prototype. Future work includes representative labeled data, evaluation of false positives, secure authorized integrations and human oversight.
+
+### Recording storyboard (target 2:30–2:50)
+- 0:00–0:20: Problem and analyst audience, app visible
+- 0:20–0:50: PayPal Sandbox panel; demonstrate **only** a real success, otherwise explain the limitation and show implemented integration
+- 0:50–1:20: Synthetic transaction baseline and AI anomaly/rule outputs
+- 1:20–1:55: Add manual flags; explain risk score and human-review recommendation
+- 1:55–2:20: JSON audit report, integrity digest and export
+- 2:20–2:40: Risk Intelligence Lab and concise closing
+
+Record the actual running app with no credential exposure, unlicensed music or third-party trademark imagery. Never splice test/mock results to suggest a live PayPal API call.
 
 ## Submission release gate
 
