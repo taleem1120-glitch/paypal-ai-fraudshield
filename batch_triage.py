@@ -72,3 +72,34 @@ def triage(csv_text, model=None):
     }
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return {"payload": payload, "sha256": sha256(raw.encode("utf-8")).hexdigest()}
+
+def verify_batch_audit(raw):
+    """Verify document self-consistency; a SHA-256 digest is NOT a signature."""
+    try:
+        if isinstance(raw, bytes):
+            if len(raw) > 1000000:
+                return False
+            raw = raw.decode("utf-8")
+        if not isinstance(raw, str) or len(raw.encode("utf-8")) > 1000000:
+            return False
+        doc = json.loads(raw)
+        if not isinstance(doc, dict) or set(doc) != {"payload", "sha256"}:
+            return False
+        payload = doc["payload"]
+        if not isinstance(payload, dict):
+            return False
+        if payload.get("schema") != "fraudshield.batch.v1":
+            return False
+        rows = payload.get("findings")
+        if not isinstance(rows, list) or not (1 <= len(rows) <= MAX_CASES):
+            return False
+        if payload.get("case_count") != len(rows) or payload.get("automated_payment_actions") is not False:
+            return False
+        digest = doc["sha256"]
+        if not isinstance(digest, str) or len(digest) != 64:
+            return False
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        from hmac import compare_digest
+        return compare_digest(sha256(canonical.encode("utf-8")).hexdigest(), digest)
+    except (ValueError, UnicodeError, TypeError, OverflowError, KeyError):
+        return False
