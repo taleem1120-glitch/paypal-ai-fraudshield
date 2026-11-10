@@ -22,7 +22,7 @@ class BatchTriageTests(unittest.TestCase):
         self.assertEqual(x["payload"]["findings"][0]["review_priority"], 1)
         self.assertFalse(x["payload"]["automated_payment_actions"])
     def test_audit_verifier_detects_tampering(self):
-        document = triage(HEADER + "X1,12,no,yes,no\\n")
+        document = triage(HEADER + "X1,12,no,yes,no\n")
         self.assertTrue(verify_batch_audit(json.dumps(document)))
         tampered = json.loads(json.dumps(document))
         tampered["payload"]["findings"][0]["rule_score"] = 0
