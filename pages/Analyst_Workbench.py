@@ -3,7 +3,7 @@ import json
 import csv
 import pandas as pd
 import streamlit as st
-from batch_triage import triage
+from batch_triage import triage, verify_batch_audit
 from scoring import train_model
 
 st.set_page_config(page_title="FraudShield | Analyst Workbench", layout="wide")
@@ -40,3 +40,13 @@ if st.button("Analyze batch", type="primary"):
         st.error(str(exc))
     except Exception:
         st.error("Analysis failed. Please check inputs and retry.")
+
+st.divider()
+st.subheader("Verify batch audit integrity")
+st.caption("This self-check detects accidental or deliberate content changes only if the comparison digest is trusted independently. It does not authenticate authorship.")
+uploaded = st.file_uploader("Choose exported batch audit JSON", type=["json"], key="batch_audit_upload")
+if uploaded is not None:
+    if verify_batch_audit(uploaded.getvalue()):
+        st.success("Audit content matches its embedded SHA-256 digest. Not a digital signature.")
+    else:
+        st.error("Invalid or modified audit JSON.")
