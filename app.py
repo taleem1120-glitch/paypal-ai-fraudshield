@@ -17,6 +17,7 @@ st.title("🛡️ FraudShield AI")
 st.caption("Explainable Payment Risk Intelligence | AI Prototype")
 
 st.page_link("pages/2_Investigator_Review.py", label="Open investigator review queue")
+st.page_link("pages/Analyst_Workbench.py", label="Open batch analyst workbench")
 
 # Offline synthetic risk evaluation
 with st.expander("📊 Synthetic Risk Evaluation", expanded=False):
