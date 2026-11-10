@@ -117,7 +117,10 @@ def create_audit_report(
                 key: manual_indicators[key]
                 for key in allowed_indicators if key in manual_indicators
             },
-            "indicator_source": "User supplied, not verified by PayPal",
+            "indicator_source": (
+                "Synthetic scenario inputs" if provenance.get("Source") == "Synthetic demonstration"
+                else "User supplied, not verified by PayPal"
+            ),
         },
         "limitations": (
             "Prototype analysis using synthetic ML "
