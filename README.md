@@ -12,7 +12,7 @@ Live Demo: https://paypal-ai-fraudshield.streamlit.app/
 
 Source Code: https://github.com/taleem1120-glitch/paypal-ai-fraudshield
 
-Submission Demo Video: https://youtu.be/qMST3nHPRko
+Submission Demo Video (updated November 10, 2026): https://youtu.be/0_7MDIwduA4
 
 Key Features
 
