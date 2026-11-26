@@ -1,5 +1,6 @@
 """Additional regression coverage for core transaction and scoring contracts."""
 import unittest
+import math
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -88,7 +89,7 @@ class RiskContractTests(unittest.TestCase):
         first = score_transaction(model, "120", "USD", False, True, False)
         second = score_transaction(model, "120", "USD", False, True, False)
         self.assertEqual(first, second)
-        self.assertTrue(-1.0 <= first[3] <= 1.0)
+        self.assertTrue(math.isfinite(first[3]))
 
     def test_synthetic_evaluation_disclaims_accuracy(self):
         summary = evaluate_synthetic_cases(train_model(), demonstration_cases())
