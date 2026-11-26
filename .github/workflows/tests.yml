@@ -35,10 +35,10 @@ jobs:
       FRAUDSHIELD_TEST_POSTGRES_APP_URL: postgresql://fraudshield_app:fraudshield_test_password@localhost:5432/fraudshield_test
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
