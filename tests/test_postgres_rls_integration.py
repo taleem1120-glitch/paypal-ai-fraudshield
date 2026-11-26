@@ -61,7 +61,6 @@ class PostgreSQLRLSTests(unittest.TestCase):
         self.tenant_a = str(uuid4())
         self.tenant_b = str(uuid4())
         self.subject = "integration-user-" + str(uuid4())
-        # Membership provisioning is an administrative operation, never an app-role action.
         with psycopg.connect(ADMIN_URL, autocommit=True) as conn:
             conn.execute(
                 "INSERT INTO tenant_memberships (id, tenant_id, subject_id, role, active) "
@@ -72,13 +71,15 @@ class PostgreSQLRLSTests(unittest.TestCase):
     def tearDown(self):
         self.session.rollback()
         self.session.close()
+        # The test database is disposable. TRUNCATE is intentionally used by
+        # the privileged fixture cleanup because audit_events rejects DELETE.
+        # This preserves the production append-only invariant under test.
         with psycopg.connect(ADMIN_URL, autocommit=True) as conn:
-            conn.execute("DELETE FROM audit_events WHERE tenant_id IN (%s, %s)",
-                         (self.tenant_a, self.tenant_b))
-            conn.execute("DELETE FROM investigation_cases WHERE tenant_id IN (%s, %s)",
-                         (self.tenant_a, self.tenant_b))
-            conn.execute("DELETE FROM tenant_memberships WHERE tenant_id IN (%s, %s)",
-                         (self.tenant_a, self.tenant_b))
+            conn.execute("TRUNCATE TABLE audit_events, investigation_cases")
+            conn.execute(
+                "DELETE FROM tenant_memberships WHERE tenant_id IN (%s, %s)",
+                (self.tenant_a, self.tenant_b),
+            )
 
     def test_rls_hides_other_tenant_rows_even_when_query_is_unscoped(self):
         case = create_case(
