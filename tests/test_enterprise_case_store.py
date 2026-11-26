@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from enterprise_core.database import initialize_schema
 from enterprise_core.models import AuditEvent, InvestigationCase
-from enterprise_core.cases import create_case, get_case, list_cases, transition_case
+from enterprise_core.cases import create_case, get_case, list_cases, list_case_events, transition_case
 
 
 class EnterpriseCaseStoreTests(unittest.TestCase):
@@ -96,6 +96,27 @@ class EnterpriseCaseStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_case(self.session, tenant_id=self.tenant_a, actor_id=self.actor,
                         title=" ")
+
+    def test_case_timeline_is_tenant_scoped_and_ordered(self):
+        case = create_case(self.session, tenant_id=self.tenant_a,
+                           actor_id=self.actor, title="Timeline")
+        transition_case(self.session, tenant_id=self.tenant_a,
+                        actor_id=self.actor, case_id=case.id,
+                        new_status="in_review")
+        self.session.commit()
+        events = list_case_events(self.session, tenant_id=self.tenant_a,
+                                  case_id=case.id)
+        self.assertEqual([e.event_type for e in events],
+                         ["case.created", "case.status_changed"])
+        self.assertEqual(list_case_events(self.session, tenant_id=self.tenant_b,
+                                          case_id=case.id), [])
+
+    def test_timeline_limit_is_bounded(self):
+        case = create_case(self.session, tenant_id=self.tenant_a,
+                           actor_id=self.actor, title="Bounded timeline")
+        with self.assertRaises(ValueError):
+            list_case_events(self.session, tenant_id=self.tenant_a,
+                             case_id=case.id, limit=500)
 
     def test_unknown_case_transition_returns_none(self):
         self.assertIsNone(transition_case(
