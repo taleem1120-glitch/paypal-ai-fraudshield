@@ -15,8 +15,8 @@ st.set_page_config(
 # Enterprise mode is opt-in and fail-closed. The public hackathon prototype
 # remains unchanged on main; this gate applies only to the Enterprise branch.
 ENTERPRISE_AUTH_ENABLED = os.environ.get(
-    "FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED", "false"
-).strip().lower() in {"1", "true", "yes"}
+    "FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED", "true"
+).strip().lower() not in {"0", "false", "no"}
 
 if ENTERPRISE_AUTH_ENABLED:
     from enterprise_core.database import make_engine, make_session_factory
