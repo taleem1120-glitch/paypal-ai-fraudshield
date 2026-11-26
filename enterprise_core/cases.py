@@ -2,7 +2,7 @@
 import json
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from .models import AuditEvent, InvestigationCase
@@ -30,8 +30,18 @@ def _uuid(value, field):
         raise ValueError(f"{field} must be a valid UUID.") from None
 
 
+def _set_tenant_context(session: Session, tenant_id: str):
+    """Set transaction-local PostgreSQL RLS context; SQLite tests use service filters."""
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(
+            text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+            {"tenant_id": tenant_id},
+        )
+
+
 def create_case(session: Session, *, tenant_id, actor_id, title, description=""):
     tenant_id = _uuid(tenant_id, "tenant_id")
+    _set_tenant_context(session, tenant_id)
     actor_id = _required_text(actor_id, "actor_id", 128)
     title = _required_text(title, "title", 160)
     if not isinstance(description, str) or len(description) > 10000:
@@ -52,6 +62,7 @@ def create_case(session: Session, *, tenant_id, actor_id, title, description="")
 
 def get_case(session: Session, *, tenant_id, case_id):
     tenant_id = _uuid(tenant_id, "tenant_id")
+    _set_tenant_context(session, tenant_id)
     case_id = _uuid(case_id, "case_id")
     return session.scalar(select(InvestigationCase).where(
         InvestigationCase.tenant_id == tenant_id,
@@ -61,6 +72,7 @@ def get_case(session: Session, *, tenant_id, case_id):
 
 def list_cases(session: Session, *, tenant_id, limit=50):
     tenant_id = _uuid(tenant_id, "tenant_id")
+    _set_tenant_context(session, tenant_id)
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("limit must be an integer between 1 and 100.")
     return list(session.scalars(
@@ -73,6 +85,7 @@ def list_cases(session: Session, *, tenant_id, limit=50):
 
 def transition_case(session: Session, *, tenant_id, actor_id, case_id, new_status):
     tenant_id = _uuid(tenant_id, "tenant_id")
+    _set_tenant_context(session, tenant_id)
     actor_id = _required_text(actor_id, "actor_id", 128)
     case = get_case(session, tenant_id=tenant_id, case_id=case_id)
     if case is None:
