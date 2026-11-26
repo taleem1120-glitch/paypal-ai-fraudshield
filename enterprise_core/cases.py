@@ -104,3 +104,25 @@ def transition_case(session: Session, *, tenant_id, actor_id, case_id, new_statu
     ))
     session.flush()
     return case
+
+
+
+def list_case_events(session: Session, *, tenant_id, case_id, limit=100):
+    """Return a bounded, tenant-scoped audit timeline for one case."""
+    tenant_id = _uuid(tenant_id, "tenant_id")
+    _set_tenant_context(session, tenant_id)
+    case_id = _uuid(case_id, "case_id")
+    if type(limit) is not int or not 1 <= limit <= 200:
+        raise ValueError("limit must be an integer between 1 and 200.")
+    if get_case(session, tenant_id=tenant_id, case_id=case_id) is None:
+        return []
+    return list(session.scalars(
+        select(AuditEvent)
+        .where(
+            AuditEvent.tenant_id == tenant_id,
+            AuditEvent.object_type == "case",
+            AuditEvent.object_id == case_id,
+        )
+        .order_by(AuditEvent.occurred_at.asc(), AuditEvent.id.asc())
+        .limit(limit)
+    ))
