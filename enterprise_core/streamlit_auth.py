@@ -83,3 +83,28 @@ def require_enterprise_session(st, session_factory: sessionmaker) -> EnterpriseS
         session.close()
 
     return EnterpriseSession(principal=principal, tenant=tenant)
+
+def require_page_enterprise_access(st):
+    """Apply the same login and tenant gate to directly opened multipage routes."""
+    enabled = os.environ.get(
+        "FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED", "false"
+    ).strip().lower() in {"1", "true", "yes"}
+    if not enabled:
+        st.warning(
+            "Enterprise authentication is disabled. This page is prototype-only "
+            "and must not be exposed as a customer deployment."
+        )
+        return None
+
+    from .database import make_engine, make_session_factory
+
+    try:
+        engine = make_engine()
+    except Exception:
+        st.error("Enterprise database is not configured. Access is blocked.")
+        st.stop()
+    try:
+        return require_enterprise_session(st, make_session_factory(engine))
+    finally:
+        engine.dispose()
+
