@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - phase-1-fraudshield-hardening
+      - enterprise/fraudshield-enterprise-x-foundation
   pull_request:
     branches:
       - main
