@@ -94,5 +94,40 @@ class StreamlitOIDCGateTests(unittest.TestCase):
         self.assertTrue(any("not an active member" in m for m in st.messages))
 
 
+    def test_authentication_required_by_default_and_invalid_config(self):
+        from enterprise_core.streamlit_auth import enterprise_auth_required
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertTrue(enterprise_auth_required())
+        for value in ("", "typo", "true", "1"):
+            with patch.dict("os.environ", {"FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED": value}):
+                self.assertTrue(enterprise_auth_required())
+
+    def test_demo_requires_explicit_opt_out(self):
+        from enterprise_core.streamlit_auth import enterprise_auth_required
+        for value in ("false", "0", "no"):
+            with patch.dict("os.environ", {"FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED": value}):
+                self.assertFalse(enterprise_auth_required())
+
+    def test_wrong_audience_is_rejected(self):
+        st = FakeStreamlit({
+            "is_logged_in": True, "sub": "oidc-user-1",
+            "iss": "https://id.example/", "aud": "other-client",
+        })
+        with self.assertRaises(StopRequested):
+            require_enterprise_session(st, self.factory)
+
+    def test_inactive_membership_is_rejected(self):
+        with self.factory() as session:
+            membership = session.query(TenantMembership).one()
+            membership.active = False
+            session.commit()
+        st = FakeStreamlit({
+            "is_logged_in": True, "sub": "oidc-user-1",
+            "iss": "https://id.example/", "aud": "fraudshield-enterprise",
+        })
+        with self.assertRaises(StopRequested):
+            require_enterprise_session(st, self.factory)
+
+
 if __name__ == "__main__":
     unittest.main()
