@@ -1,8 +1,7 @@
 """Real PostgreSQL RLS integration tests.
 
 The CI job supplies an admin URL for schema/role setup and a separate
-non-owner application URL. These tests are skipped in local environments
-without both URLs; SQLite tests do not prove PostgreSQL RLS behavior.
+non-owner application URL. SQLite tests do not prove PostgreSQL RLS behavior.
 """
 import os
 import unittest
@@ -14,6 +13,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
+from enterprise_core.authorization import AuthorizationDenied, authorize_tenant
 from enterprise_core.cases import create_case, get_case, list_cases
 from enterprise_core.models import InvestigationCase
 
@@ -37,15 +37,18 @@ class PostgreSQLRLSTests(unittest.TestCase):
                 END
                 $$;
             """)
-            migration = Path("enterprise_core/migrations/001_initial_postgresql.sql").read_text()
-            conn.execute(migration)
+            for migration_path in (
+                "enterprise_core/migrations/001_initial_postgresql.sql",
+                "enterprise_core/migrations/002_tenant_memberships.sql",
+            ):
+                conn.execute(Path(migration_path).read_text())
             conn.execute("GRANT CONNECT ON DATABASE fraudshield_test TO fraudshield_app")
             conn.execute("GRANT USAGE ON SCHEMA public TO fraudshield_app")
             conn.execute("""
                 GRANT SELECT, INSERT, UPDATE, DELETE
                 ON investigation_cases, audit_events TO fraudshield_app
             """)
-        # SQLAlchemy must select psycopg 3 explicitly; postgresql:// defaults to psycopg2.
+            conn.execute("GRANT SELECT ON tenant_memberships TO fraudshield_app")
         sqlalchemy_app_url = APP_URL.replace("postgresql://", "postgresql+psycopg://", 1)
         cls.engine = create_engine(sqlalchemy_app_url, pool_pre_ping=True, future=True)
 
@@ -57,10 +60,25 @@ class PostgreSQLRLSTests(unittest.TestCase):
         self.session = Session(self.engine, expire_on_commit=False)
         self.tenant_a = str(uuid4())
         self.tenant_b = str(uuid4())
+        self.subject = "integration-user-" + str(uuid4())
+        # Membership provisioning is an administrative operation, never an app-role action.
+        with psycopg.connect(ADMIN_URL, autocommit=True) as conn:
+            conn.execute(
+                "INSERT INTO tenant_memberships (id, tenant_id, subject_id, role, active) "
+                "VALUES (%s, %s, %s, %s, true)",
+                (str(uuid4()), self.tenant_a, self.subject, "investigator"),
+            )
 
     def tearDown(self):
         self.session.rollback()
         self.session.close()
+        with psycopg.connect(ADMIN_URL, autocommit=True) as conn:
+            conn.execute("DELETE FROM audit_events WHERE tenant_id IN (%s, %s)",
+                         (self.tenant_a, self.tenant_b))
+            conn.execute("DELETE FROM investigation_cases WHERE tenant_id IN (%s, %s)",
+                         (self.tenant_a, self.tenant_b))
+            conn.execute("DELETE FROM tenant_memberships WHERE tenant_id IN (%s, %s)",
+                         (self.tenant_a, self.tenant_b))
 
     def test_rls_hides_other_tenant_rows_even_when_query_is_unscoped(self):
         case = create_case(
@@ -68,9 +86,6 @@ class PostgreSQLRLSTests(unittest.TestCase):
             title="Tenant A protected case",
         )
         self.session.commit()
-
-        # Deliberately omit the service-layer tenant predicate. PostgreSQL RLS
-        # must still prevent this application role from seeing the row.
         self.session.execute(
             text("SELECT set_config('app.tenant_id', :tenant, true)"),
             {"tenant": self.tenant_b},
@@ -100,10 +115,34 @@ class PostgreSQLRLSTests(unittest.TestCase):
             title="Tenant A lookup",
         )
         self.session.commit()
-        self.assertIsNone(get_case(
-            self.session, tenant_id=self.tenant_b, case_id=case.id
-        ))
+        self.assertIsNone(get_case(self.session, tenant_id=self.tenant_b, case_id=case.id))
         self.assertEqual(list_cases(self.session, tenant_id=self.tenant_b), [])
+
+    def test_membership_authorization_works_through_non_owner_role(self):
+        context = authorize_tenant(
+            self.session, verified_subject_id=self.subject,
+            requested_tenant_id=self.tenant_a, permission="cases.update_status",
+        )
+        self.assertEqual(context.tenant_id, self.tenant_a)
+        self.assertEqual(context.role, "investigator")
+
+    def test_membership_rls_and_missing_membership_deny_cross_tenant(self):
+        with self.assertRaises(AuthorizationDenied):
+            authorize_tenant(
+                self.session, verified_subject_id=self.subject,
+                requested_tenant_id=self.tenant_b, permission="cases.read",
+            )
+
+    def test_membership_rls_blocks_unscoped_cross_tenant_read(self):
+        self.session.execute(
+            text("SELECT set_config('app.tenant_id', :tenant, true)"),
+            {"tenant": self.tenant_b},
+        )
+        rows = self.session.scalars(
+            text("SELECT subject_id FROM tenant_memberships WHERE subject_id = :subject"),
+            {"subject": self.subject},
+        ).all()
+        self.assertEqual(rows, [])
 
 
 if __name__ == "__main__":
