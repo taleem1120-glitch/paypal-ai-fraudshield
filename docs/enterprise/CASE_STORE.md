@@ -9,6 +9,7 @@
 - Allowed status transitions: open → in_review/closed; in_review → open/closed; closed → terminal.
 - Optimistic version column on case records.
 - Audit event emitted for case creation and status change.
+- Bounded, tenant-scoped case audit timeline query with stable ordering.
 - ORM event hooks reject update/delete of audit events.
 - PostgreSQL migration adds composite tenant/case foreign key, row-level security and a database trigger rejecting audit-event update/delete.
 - PostgreSQL service calls set transaction-local app.tenant_id before data access.
