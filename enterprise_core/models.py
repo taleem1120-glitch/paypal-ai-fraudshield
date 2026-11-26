@@ -18,6 +18,19 @@ class Base(DeclarativeBase):
     pass
 
 
+class TenantMembership(Base):
+    __tablename__ = "tenant_memberships"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "subject_id", name="uq_tenant_membership_subject"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    subject_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+
 class InvestigationCase(Base):
     __tablename__ = "investigation_cases"
     __table_args__ = (UniqueConstraint("tenant_id", "id", name="uq_investigation_cases_tenant_id"),)
