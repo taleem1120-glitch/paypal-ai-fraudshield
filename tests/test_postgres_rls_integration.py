@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import psycopg
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from enterprise_core.cases import create_case, get_case, list_cases
@@ -44,7 +45,9 @@ class PostgreSQLRLSTests(unittest.TestCase):
                 GRANT SELECT, INSERT, UPDATE, DELETE
                 ON investigation_cases, audit_events TO fraudshield_app
             """)
-        cls.engine = create_engine(APP_URL, pool_pre_ping=True, future=True)
+        # SQLAlchemy must select psycopg 3 explicitly; postgresql:// defaults to psycopg2.
+        sqlalchemy_app_url = APP_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+        cls.engine = create_engine(sqlalchemy_app_url, pool_pre_ping=True, future=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -87,7 +90,7 @@ class PostgreSQLRLSTests(unittest.TestCase):
             tenant_id=self.tenant_b, title="Must be blocked",
             description="", status="open", version=1,
         ))
-        with self.assertRaises(Exception):
+        with self.assertRaises(DBAPIError):
             self.session.flush()
         self.session.rollback()
 
