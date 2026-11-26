@@ -84,11 +84,14 @@ def require_enterprise_session(st, session_factory: sessionmaker) -> EnterpriseS
 
     return EnterpriseSession(principal=principal, tenant=tenant)
 
+def enterprise_auth_required():
+    """Authentication is mandatory unless explicit local demo mode is selected."""
+    return os.environ.get("FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
+
+
 def require_page_enterprise_access(st):
     """Apply the same login and tenant gate to directly opened multipage routes."""
-    enabled = os.environ.get(
-        "FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED", "false"
-    ).strip().lower() in {"1", "true", "yes"}
+    enabled = enterprise_auth_required()
     if not enabled:
         st.warning(
             "Enterprise authentication is disabled. This page is prototype-only "
