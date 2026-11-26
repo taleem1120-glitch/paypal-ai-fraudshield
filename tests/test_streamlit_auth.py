@@ -1,5 +1,6 @@
 """Streamlit OIDC-to-tenant gate tests."""
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from sqlalchemy import create_engine
@@ -45,7 +46,7 @@ class StreamlitOIDCGateTests(unittest.TestCase):
                 role="investigator", active=True,
             ))
             session.commit()
-        self.env = __import__("unittest").mock.patch.dict("os.environ", {
+        self.env = patch.dict("os.environ", {
             "FRAUDSHIELD_OIDC_ISSUER": "https://id.example/",
             "FRAUDSHIELD_OIDC_AUDIENCE": "fraudshield-enterprise",
             "FRAUDSHIELD_DEFAULT_TENANT_ID": self.tenant,
