@@ -6,7 +6,7 @@ an authenticated server-side identity context, never from an untrusted client.
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, event
+from sqlalchemy import DateTime, ForeignKeyConstraint, Integer, String, Text, UniqueConstraint, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -20,6 +20,7 @@ class Base(DeclarativeBase):
 
 class InvestigationCase(Base):
     __tablename__ = "investigation_cases"
+    __table_args__ = (UniqueConstraint("tenant_id", "id", name="uq_investigation_cases_tenant_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
@@ -35,6 +36,7 @@ class InvestigationCase(Base):
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
+    __table_args__ = (ForeignKeyConstraint(["tenant_id", "object_id"], ["investigation_cases.tenant_id", "investigation_cases.id"], name="fk_audit_case_tenant"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
