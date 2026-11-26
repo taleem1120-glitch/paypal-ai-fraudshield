@@ -1,0 +1,85 @@
+"""Streamlit OIDC login and tenant authorization gate for Enterprise mode.
+
+Streamlit's built-in OIDC flow validates the ID token using .streamlit/secrets.toml.
+This module only accepts claims exposed by Streamlit's authenticated st.user object,
+then independently checks configured issuer/audience and active tenant membership.
+"""
+import os
+from dataclasses import dataclass
+
+from sqlalchemy.orm import Session, sessionmaker
+
+from .authentication import VerifiedPrincipal
+from .authorization import AuthorizationDenied, TenantContext, authorize_tenant
+
+
+class EnterpriseConfigurationError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class EnterpriseSession:
+    principal: VerifiedPrincipal
+    tenant: TenantContext
+
+
+def _claim(user, key):
+    try:
+        value = user.get(key)
+    except AttributeError:
+        value = getattr(user, key, None)
+    return value
+
+
+def require_enterprise_session(st, session_factory: sessionmaker) -> EnterpriseSession:
+    """Redirect unauthenticated users to OIDC login; fail closed on all errors."""
+    if not bool(_claim(st.user, "is_logged_in")):
+        st.info("Sign in with your organization's identity provider to continue.")
+        st.login()
+        st.stop()
+
+    expected_issuer = os.environ.get("FRAUDSHIELD_OIDC_ISSUER", "").strip()
+    expected_audience = os.environ.get("FRAUDSHIELD_OIDC_AUDIENCE", "").strip()
+    tenant_id = os.environ.get("FRAUDSHIELD_DEFAULT_TENANT_ID", "").strip()
+    if not expected_issuer or not expected_audience or not tenant_id:
+        st.error("Enterprise authentication is not fully configured. Access is blocked.")
+        st.stop()
+
+    subject = _claim(st.user, "sub")
+    issuer = _claim(st.user, "iss")
+    audience = _claim(st.user, "aud")
+    valid_audience = (
+        audience == expected_audience
+        or isinstance(audience, (list, tuple)) and expected_audience in audience
+    )
+    if (not isinstance(subject, str) or not subject.strip()
+            or len(subject) > 128 or issuer != expected_issuer or not valid_audience):
+        st.error("Your identity could not be verified for this application.")
+        st.stop()
+
+    principal = VerifiedPrincipal(
+        subject_id=subject.strip(),
+        issuer=expected_issuer,
+        audience=expected_audience,
+    )
+    session: Session = session_factory()
+    try:
+        tenant = authorize_tenant(
+            session,
+            verified_subject_id=principal.subject_id,
+            requested_tenant_id=tenant_id,
+            permission="cases.read",
+        )
+        session.rollback()
+    except AuthorizationDenied:
+        session.rollback()
+        st.error("Your account is not an active member of this organization.")
+        st.stop()
+    except Exception:
+        session.rollback()
+        st.error("Enterprise authorization is temporarily unavailable. Access is blocked.")
+        st.stop()
+    finally:
+        session.close()
+
+    return EnterpriseSession(principal=principal, tenant=tenant)
