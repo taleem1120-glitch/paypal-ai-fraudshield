@@ -12,6 +12,7 @@ from sqlalchemy import select
 from .authentication import VerifiedPrincipal
 from .evidence import check_original
 from .models import CaseEvidence
+from .pilot_case import open_pilot_case
 from .secure_cases import require_context
 
 
@@ -63,6 +64,12 @@ def forge_identity(authorization: str = Header(default="")):
 
 def router(sessions, tenant):
     routes = APIRouter(prefix="/forge/cases")
+
+    @routes.post("/pilot")
+    def pilot(response: Response, principal=Depends(forge_identity)):
+        response.headers["Cache-Control"] = "no-store"
+        with sessions.begin() as session:
+            return open_pilot_case(session, principal, tenant)
 
     @routes.get("/{case_id}/receipts")
     def lookup(case_id: UUID, response: Response, principal=Depends(forge_identity)):

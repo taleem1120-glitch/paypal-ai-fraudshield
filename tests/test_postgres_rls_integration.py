@@ -172,6 +172,28 @@ class PostgreSQLRLSTests(unittest.TestCase):
                              {"tenant":self.tenant_b})
         self.assertEqual(self.session.scalar(text("SELECT count(*) FROM case_evidence")),0)
 
+    def test_concurrent_pilot_setup_returns_one_case_and_original(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        from enterprise_core.authentication import VerifiedPrincipal
+        from enterprise_core.pilot_case import open_pilot_case
+
+        principal = VerifiedPrincipal(self.subject, "test", "test")
+
+        def open_sample(_):
+            with Session(self.engine) as session, session.begin():
+                return open_pilot_case(session, principal, self.tenant_a)
+
+        with patch.dict(os.environ, {"FRAUDSHIELD_PILOT_TENANT_ID":self.tenant_a}):
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                receipts = list(pool.map(open_sample, range(12)))
+        self.assertTrue(all(receipt == receipts[0] for receipt in receipts))
+        self.session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                             {"tenant":self.tenant_a})
+        events = self.session.scalars(text("SELECT event_type FROM audit_events WHERE object_id=:id"),
+                                      {"id":receipts[0]["case_id"]}).all()
+        self.assertCountEqual(events, ["case.created","evidence.preserved"])
+
 
 if __name__ == "__main__":
     unittest.main()

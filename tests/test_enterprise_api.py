@@ -195,3 +195,28 @@ class EnterpriseAPITests(unittest.TestCase):
             self.assertEqual(self.api.post(url,headers=invocation()).status_code,409)
         finally:
             engine.dispose()
+
+    def test_pilot_is_tenant_gated_repeatable_and_verifiable(self):
+        from enterprise_core.forge_remote import forge_identity
+        from enterprise_core.authentication import VerifiedPrincipal
+        app = self.api.app
+        principal = VerifiedPrincipal("alice", "test", "test")
+        app.dependency_overrides[forge_identity] = lambda: principal
+        path = "/forge/cases/pilot"
+        with patch.dict(os.environ, {"FRAUDSHIELD_PILOT_TENANT_ID":str(uuid4())}):
+            self.assertEqual(self.api.post(path).status_code,403)
+        with patch.dict(os.environ, {"FRAUDSHIELD_PILOT_TENANT_ID":self.tenant}):
+            principal = VerifiedPrincipal("bob", "test", "test")
+            self.assertEqual(self.api.post(path).status_code,403)
+            self.assertEqual(self.api.get("/cases",headers=self.headers()).json(),[])
+            principal = VerifiedPrincipal("alice", "test", "test")
+            response = self.api.post(path)
+            self.assertEqual(response.status_code,200,response.text)
+            receipt = response.json()
+            self.assertEqual(self.api.post(path).json(),receipt)
+            case = receipt["case_id"]
+            url = f"/forge/cases/{case}/receipts/{receipt['sha256']}/verify"
+            self.assertTrue(self.api.post(url).json()["verified"])
+            events = self.api.get(f"/cases/{case}/timeline",headers=self.headers()).json()
+            self.assertEqual([e["event"] for e in events],
+                             ["case.created","evidence.preserved","evidence.verified"])

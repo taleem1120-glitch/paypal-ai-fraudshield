@@ -49,6 +49,15 @@ function Panel({id}) {
       const time = await verifyStored(invokeRemote, current);
       setMessage("Original bytes matched this issue receipt at " + time);
     })}>Verify linked evidence</Button>}
+    {!linked && <Button isDisabled={busy} onClick={() => run(async () => {
+      setChoices([]);
+      const result = await invokeRemote({path: "/forge/cases/pilot", method: "POST"});
+      if (result.status !== 200) throw Error("Sample unavailable. Use a configured pilot tenant and investigator account.");
+      const sample = parseReceipt(JSON.stringify(result.body));
+      setInput(sample.case_id);
+      setChoices([sample]);
+      setMessage("Synthetic checkout case prepared. Verify its original to link it to this issue.");
+    })}>Open synthetic pilot case</Button>}
     <Text>Enter a FraudShield case UUID to find its latest 20 items, or paste an exact receipt. Linking replaces this issue's visible reference.</Text>
     <TextArea value={input} isDisabled={busy} onChange={event => {setInput(event.target.value); setChoices([]);}} />
     <Button isDisabled={busy || !input.trim()} onClick={() => run(lookup)}>Find evidence</Button>
