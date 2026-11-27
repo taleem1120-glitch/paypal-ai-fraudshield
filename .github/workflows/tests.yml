@@ -53,3 +53,24 @@ jobs:
 
       - name: Check Forge receipt contracts
         run: node --test forge/test/*.test.mjs
+
+      - name: Set up Node for Forge
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install locked Forge dependencies
+        working-directory: forge
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Validate Forge manifest with a synthetic remote
+        working-directory: forge
+        env:
+          FRAUDSHIELD_FORGE_APP_ID: ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000001
+          FRAUDSHIELD_FORGE_REMOTE_URL: https://evidence.example.com
+        run: |
+          node -e "require('@forge/manifest').validate().then(r => { if (!r.success) { console.error(r.errors); process.exitCode = 1; } })"
+
+      - name: Bundle both Forge views
+        working-directory: forge
+        run: npm exec --yes --package=esbuild@0.28.2 -- esbuild src/issue.jsx src/report.jsx --bundle --platform=browser --outdir="$RUNNER_TEMP/fraudshield-forge"
