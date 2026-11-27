@@ -220,3 +220,29 @@ class EnterpriseAPITests(unittest.TestCase):
             events = self.api.get(f"/cases/{case}/timeline",headers=self.headers()).json()
             self.assertEqual([e["event"] for e in events],
                              ["case.created","evidence.preserved","evidence.verified"])
+
+    def test_download_fails_closed_on_corrupt_original(self):
+        from enterprise_core.models import CaseEvidence
+        headers = self.headers()
+        case = self.api.post("/cases", headers=headers, json={"title":"Integrity regression"}).json()["case_id"]
+        raw = export_audit_json(create_audit_report({}, 0, False, 0.2, "low", "review", [])).encode()
+        path = f"/cases/{case}/evidence"
+        receipt = self.api.post(path, headers=headers, content=raw).json()
+        digest = receipt["sha256"]
+        self.assertEqual(self.api.get(path+"/invalid", headers=headers).status_code,422)
+        self.assertEqual(self.api.get(path+"/"+"0"*64, headers=headers).status_code,404)
+        self.assertEqual(self.api.get(path+"/"+digest, headers=headers).content,raw)
+        engine = make_engine()
+        try:
+            with Session(engine) as session, session.begin():
+                row = session.get(CaseEvidence,(self.tenant,case,digest))
+                row.payload = b"synthetic corruption"
+            result = self.api.get(path+"/"+digest, headers=headers)
+            self.assertEqual(result.status_code,409)
+            self.assertNotIn(b"synthetic corruption",result.content)
+            self.assertEqual(self.api.get(path+"/"+digest,headers=self.headers(sub="bob")).status_code,403)
+            timeline = self.api.get(f"/cases/{case}/timeline",headers=headers).json()
+            self.assertEqual([e["event"] for e in timeline],
+                             ["case.created","evidence.preserved","evidence.exported"])
+        finally:
+            engine.dispose()

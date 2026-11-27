@@ -7,7 +7,7 @@ from uuid import UUID
 
 from auth0_api_python import ApiClient, ApiClientOptions
 from auth0_api_python.errors import AuthServerUnavailableError, BaseAuthError
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Path, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm.exc import StaleDataError
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
@@ -195,12 +195,14 @@ def create_app():
         return {"assessment": result, "receipt": receipt}
 
     @app.get("/cases/{case_id}/evidence/{digest}")
-    def download(case_id: UUID, digest: str, principal=Depends(identity)):
+    def download(case_id: UUID, digest: str = Path(pattern=r"^[0-9a-f]{64}$"), principal=Depends(identity)):
         with sessions.begin() as session:
             try:
                 raw = evidence.retrieve(session, principal, tenant, str(case_id), digest)
             except LookupError:
                 raise HTTPException(404, "Evidence unavailable.") from None
+            except ValueError:
+                raise HTTPException(409, "Stored evidence integrity check failed.") from None
         return Response(raw, media_type="application/octet-stream",
                         headers={"Cache-Control": "no-store",
                                  "Content-Disposition": "attachment; filename=audit.json"})
