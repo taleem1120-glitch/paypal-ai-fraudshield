@@ -15,9 +15,9 @@ from .models import TenantMembership
 ROLE_PERMISSIONS = {
     "viewer": frozenset({"cases.read"}),
     "analyst": frozenset({"cases.read", "cases.create"}),
-    "investigator": frozenset({"cases.read", "cases.create", "cases.update_status"}),
+    "investigator": frozenset({"cases.read", "evidence.read", "evidence.write", "cases.create", "cases.update_status"}),
     "tenant_admin": frozenset({
-        "cases.read", "cases.create", "cases.update_status",
+        "cases.read", "evidence.read", "evidence.write", "cases.create", "cases.update_status",
         "memberships.read", "memberships.manage",
     }),
 }

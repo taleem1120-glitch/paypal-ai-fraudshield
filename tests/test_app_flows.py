@@ -51,6 +51,7 @@ class UI:
         return self.inputs.get(label, False)
 
 
+@patch.dict("os.environ", {"FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED": "false"})
 class AppFlows(unittest.TestCase):
     def setUp(self):
         self.ui = UI()

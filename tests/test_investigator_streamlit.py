@@ -2,11 +2,13 @@
 import importlib.util
 import json
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
 @unittest.skipUnless(importlib.util.find_spec("streamlit"), "Streamlit runtime required")
 class InvestigatorStreamlitTests(unittest.TestCase):
+    @patch.dict("os.environ", {"FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED": "false"})
     def test_demo_review_cycle(self):
         from streamlit.testing.v1 import AppTest
 

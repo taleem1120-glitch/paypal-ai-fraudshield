@@ -39,6 +39,7 @@ class InvestigationCase(Base):
     tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(160), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    assigned_subject: Mapped[str | None] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="open", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
@@ -69,3 +70,28 @@ def _reject_audit_update(mapper, connection, target):
 @event.listens_for(AuditEvent, "before_delete")
 def _reject_audit_delete(mapper, connection, target):
     raise ValueError("Audit events cannot be deleted through the ORM.")
+
+
+class CaseEvidence(Base):
+    __tablename__ = "case_evidence"
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "case_id"],
+                             ["investigation_cases.tenant_id", "investigation_cases.id"]),
+    )
+    tenant_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    payload: Mapped[bytes]
+    actor_id: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class TransactionReceipt(Base):
+    __tablename__ = "transaction_receipts"
+    __table_args__ = (ForeignKeyConstraint(
+        ["tenant_id", "case_id", "digest"],
+        ["case_evidence.tenant_id", "case_evidence.case_id", "case_evidence.digest"]),)
+    tenant_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    digest: Mapped[str] = mapped_column(String(64))

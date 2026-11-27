@@ -45,6 +45,11 @@ def require_enterprise_session(st, session_factory: sessionmaker) -> EnterpriseS
         st.error("Enterprise authentication is not fully configured. Access is blocked.")
         st.stop()
 
+    expected_org = os.environ.get("FRAUDSHIELD_AUTH0_ORGANIZATION")
+    if expected_org and _claim(st.user, "org_id") != expected_org:
+        st.error("Organization access denied.")
+        st.stop()
+
     subject = _claim(st.user, "sub")
     issuer = _claim(st.user, "iss")
     audience = _claim(st.user, "aud")

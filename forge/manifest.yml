@@ -1,0 +1,29 @@
+app:
+  id: ${FRAUDSHIELD_FORGE_APP_ID}
+  runtime:
+    name: nodejs22.x
+environment:
+  variables:
+    - FRAUDSHIELD_FORGE_APP_ID
+modules:
+  jira:issuePanel:
+    - key: fraudshield-case-receipt
+      resource: issue
+      render: native
+      title: FraudShield evidence receipt
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  macro:
+    - key: fraudshield-evidence-report
+      resource: report
+      render: native
+      title: FraudShield evidence report
+      config: true
+resources:
+  - key: issue
+    path: src/issue.jsx
+  - key: report
+    path: src/report.jsx
+permissions:
+  scopes:
+    - read:issue.property:jira
+    - write:issue.property:jira

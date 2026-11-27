@@ -37,17 +37,15 @@ class PostgreSQLRLSTests(unittest.TestCase):
                 END
                 $$;
             """)
-            for migration_path in (
-                "enterprise_core/migrations/001_initial_postgresql.sql",
-                "enterprise_core/migrations/002_tenant_memberships.sql",
-            ):
-                conn.execute(Path(migration_path).read_text())
+            for migration_path in sorted(Path("enterprise_core/migrations").glob("*.sql")):
+                conn.execute(migration_path.read_text())
             conn.execute("GRANT CONNECT ON DATABASE fraudshield_test TO fraudshield_app")
             conn.execute("GRANT USAGE ON SCHEMA public TO fraudshield_app")
             conn.execute("""
                 GRANT SELECT, INSERT, UPDATE, DELETE
                 ON investigation_cases, audit_events TO fraudshield_app
             """)
+            conn.execute("GRANT SELECT, INSERT ON case_evidence, transaction_receipts TO fraudshield_app")
             conn.execute("GRANT SELECT ON tenant_memberships TO fraudshield_app")
         sqlalchemy_app_url = APP_URL.replace("postgresql://", "postgresql+psycopg://", 1)
         cls.engine = create_engine(sqlalchemy_app_url, pool_pre_ping=True, future=True)
@@ -75,7 +73,7 @@ class PostgreSQLRLSTests(unittest.TestCase):
         # the privileged fixture cleanup because audit_events rejects DELETE.
         # This preserves the production append-only invariant under test.
         with psycopg.connect(ADMIN_URL, autocommit=True) as conn:
-            conn.execute("TRUNCATE TABLE audit_events, investigation_cases")
+            conn.execute("TRUNCATE TABLE transaction_receipts, case_evidence, audit_events, investigation_cases")
             conn.execute(
                 "DELETE FROM tenant_memberships WHERE tenant_id IN (%s, %s)",
                 (self.tenant_a, self.tenant_b),
@@ -144,6 +142,35 @@ class PostgreSQLRLSTests(unittest.TestCase):
             {"subject": self.subject},
         ).all()
         self.assertEqual(rows, [])
+
+    def test_evidence_parallel_retry_custody_rls_and_immutability(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from audit_reporting import create_audit_report, export_audit_json
+        from enterprise_core import evidence
+        from enterprise_core.authentication import VerifiedPrincipal
+        principal = VerifiedPrincipal(self.subject, "test", "test")
+        case = create_case(self.session, tenant_id=self.tenant_a, actor_id=self.subject, title="Intake")
+        self.session.commit()
+        raw = export_audit_json(create_audit_report({}, 0, False, 0, "low", "review", [])).encode()
+
+        def preserve(_):
+            with Session(self.engine) as session, session.begin():
+                return evidence.preserve(session, principal, self.tenant_a, case.id, raw)
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            receipts = list(pool.map(preserve, range(12)))
+        self.assertTrue(all(r == receipts[0] for r in receipts))
+        self.assertEqual(evidence.retrieve(self.session, principal, self.tenant_a, case.id,
+                                           receipts[0]["sha256"]), raw)
+        count = self.session.scalar(text("SELECT count(*) FROM audit_events WHERE object_id=:id "
+                                         "AND event_type='evidence.preserved'"), {"id":case.id})
+        self.assertEqual(count, 1)
+        with self.assertRaises(DBAPIError):
+            self.session.execute(text("UPDATE case_evidence SET actor_id='replacement'"))
+        self.session.rollback()
+        self.session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                             {"tenant":self.tenant_b})
+        self.assertEqual(self.session.scalar(text("SELECT count(*) FROM case_evidence")),0)
 
 
 if __name__ == "__main__":

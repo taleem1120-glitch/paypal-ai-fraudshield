@@ -11,7 +11,6 @@ from functools import lru_cache
 
 import jwt
 from jwt import PyJWKClient
-from jwt.exceptions import PyJWTError
 
 
 class AuthenticationDenied(PermissionError):
@@ -27,7 +26,7 @@ class VerifiedPrincipal:
 
 @lru_cache(maxsize=8)
 def _jwks_client(url: str):
-    return PyJWKClient(url, cache_keys=True)
+    return PyJWKClient(url, cache_keys=False)
 
 
 def authenticate_bearer(authorization_header: str) -> VerifiedPrincipal:
@@ -68,6 +67,6 @@ def authenticate_bearer(authorization_header: str) -> VerifiedPrincipal:
         )
     except AuthenticationDenied:
         raise
-    except (PyJWTError, Exception):
+    except Exception:
         # Do not expose token, key, provider, or claim details to callers.
         raise AuthenticationDenied("Authentication required.") from None

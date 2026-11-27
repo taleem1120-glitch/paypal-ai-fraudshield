@@ -1,0 +1,19 @@
+{
+  "name": "fraudshield-receipts",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@forge/bridge": "7.4.0",
+    "@forge/react": "12.6.0",
+    "react": "^18.2.0"
+  },
+  "overrides": {
+    "prosemirror-view": "^1.42.3",
+    "@forge/manifest": {
+      "glob": "^14.0.2"
+    }
+  }
+}

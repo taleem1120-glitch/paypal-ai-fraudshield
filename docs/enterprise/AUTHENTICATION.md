@@ -37,7 +37,7 @@ Set these environment variables in the deployment environment:
 - `FRAUDSHIELD_DATABASE_URL`: PostgreSQL URL for the dedicated application role
 
 The application role must be a non-owner, non-superuser role without
-`BYPASSRLS`. Apply both PostgreSQL migrations using a controlled privileged
+`BYPASSRLS`. Apply all PostgreSQL migrations in filename order using a controlled privileged
 migration account, then grant the runtime role only the required table and
 sequence permissions. Never run production migrations as the application role.
 

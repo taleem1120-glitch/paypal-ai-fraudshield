@@ -46,6 +46,8 @@ else:
 st.title("🛡️ FraudShield AI")
 st.caption("Explainable Payment Risk Intelligence | AI Prototype")
 
+if ENTERPRISE_AUTH_ENABLED:
+    st.page_link("pages/3_Enterprise_Cases.py", label="Open persistent enterprise cases")
 st.page_link("pages/2_Investigator_Review.py", label="Open investigator review queue")
 st.page_link("pages/Analyst_Workbench.py", label="Open batch analyst workbench")
 

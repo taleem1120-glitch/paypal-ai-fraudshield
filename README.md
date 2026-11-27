@@ -177,3 +177,7 @@ See:
 
 Do not submit real customer or payment data to this prototype or the
 unfinished enterprise branch.
+
+## FraudShield Enterprise X
+
+The enterprise branch adds a persistent case workbench, an Auth0-protected investigation API, evidence custody receipts, and Jira and Confluence receipt views. Deployment, access roles, pilot acceptance steps and commercial assumptions are in the [enterprise pilot guide](docs/enterprise/PILOT.md).
