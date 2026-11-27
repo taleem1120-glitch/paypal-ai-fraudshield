@@ -36,7 +36,7 @@ def preserve(session, principal, tenant_id, case_id, raw):
     return {"schema": "fraudshield-receipt-v1", "case_id": case.id, "sha256": digest}
 
 
-def retrieve(session, principal, tenant_id, case_id, digest):
+def _checked_row(session, principal, tenant_id, case_id, digest):
     ctx = require_context(session, principal, tenant_id, "evidence.read")
     row = session.scalar(select(CaseEvidence).where(
         CaseEvidence.tenant_id == ctx.tenant_id, CaseEvidence.case_id == case_id,
@@ -45,6 +45,16 @@ def retrieve(session, principal, tenant_id, case_id, digest):
         raise LookupError("Evidence unavailable.")
     if hashlib.sha256(row.payload).hexdigest() != row.digest:
         raise ValueError("Stored evidence integrity check failed.")
+    return ctx, row
+
+
+def check_original(session, principal, tenant_id, case_id, digest):
+    ctx, _ = _checked_row(session, principal, tenant_id, case_id, digest)
+    custody(session, ctx, case_id, "evidence.verified", digest)
+
+
+def retrieve(session, principal, tenant_id, case_id, digest):
+    ctx, row = _checked_row(session, principal, tenant_id, case_id, digest)
     custody(session, ctx, case_id, "evidence.exported", digest)
     return row.payload
 

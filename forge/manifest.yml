@@ -5,19 +5,30 @@ app:
 environment:
   variables:
     - FRAUDSHIELD_FORGE_APP_ID
+    - FRAUDSHIELD_FORGE_REMOTE_URL
 modules:
   jira:issuePanel:
     - key: fraudshield-case-receipt
       resource: issue
+      resolver:
+        endpoint: evidence-api
       render: native
       title: FraudShield evidence receipt
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  endpoint:
+    - key: evidence-api
+      remote: fraudshield-enterprise
   macro:
     - key: fraudshield-evidence-report
       resource: report
       render: native
       title: FraudShield evidence report
       config: true
+remotes:
+  - key: fraudshield-enterprise
+    baseUrl: ${FRAUDSHIELD_FORGE_REMOTE_URL}
+    operations:
+      - compute
 resources:
   - key: issue
     path: src/issue.jsx

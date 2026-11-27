@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from audit_reporting import calculate_sha256, canonical_json
 from audit_verification import MAX_AUDIT_BYTES
 from risk_intelligence import Scenario, explain
-from . import evidence, secure_cases
+from . import evidence, forge_remote, secure_cases
 from .authentication import VerifiedPrincipal
 from .authorization import AuthorizationDenied
 from .database import make_engine, make_session_factory
@@ -204,4 +204,5 @@ def create_app():
         return Response(raw, media_type="application/octet-stream",
                         headers={"Cache-Control": "no-store",
                                  "Content-Disposition": "attachment; filename=audit.json"})
+    app.include_router(forge_remote.router(sessions, tenant))
     return app

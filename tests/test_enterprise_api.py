@@ -144,3 +144,54 @@ class EnterpriseAPITests(unittest.TestCase):
                 expected = (25 if amount=="1000.01" else 0) + sum(
                     weight for flag, weight in zip(flags,[30,20,25]) if flag)
                 self.assertEqual(result["rule_score"],expected)
+
+    def test_forge_verification_requires_trusted_installation_and_fresh_membership(self):
+        from types import SimpleNamespace
+        from enterprise_core.models import CaseEvidence
+        self.enterContext(patch.dict(os.environ, {
+            "FRAUDSHIELD_FORGE_APP_ID":"test-app",
+            "FRAUDSHIELD_FORGE_INSTALLATION_ID":"installation",
+            "FRAUDSHIELD_FORGE_ENVIRONMENT_ID":"env",
+            "FRAUDSHIELD_FORGE_ACCOUNT_BINDINGS":json.dumps({"account":"alice","viewer":"bob"}),
+        }))
+        keys = self.enterContext(patch("enterprise_core.forge_remote.forge_keys"))
+        keys.return_value.get_signing_key_from_jwt.return_value = SimpleNamespace(key=self.key.public_key())
+        now = int(time.time())
+        app = {"id":"test-app","installationId":"installation","environment":{"id":"env"},
+               "module":{"key":"fraudshield-case-receipt"}}
+        claims = {"iss":"forge/invocation-token","aud":"test-app","iat":now,"nbf":now,"exp":now+60,
+                  "principal":"account","app":app}
+
+        def invocation(**changes):
+            token = jwt.encode(claims | changes,self.key,algorithm="RS256",headers={"kid":"test"})
+            return {"Authorization":"Bearer " + token}
+
+        headers = self.headers()
+        case = self.api.post("/cases",headers=headers,json={"title":"Forge"}).json()["case_id"]
+        receipt = self.api.put(f"/cases/{case}/transactions/{uuid4()}",headers=headers,
+                               json={"amount":"5","currency":"USD"}).json()["receipt"]
+        path = f"/forge/cases/{case}/receipts"
+        url = path + "/" + receipt["sha256"] + "/verify"
+        self.assertEqual(self.api.get(path,headers=invocation()).json(),{"receipts":[receipt]})
+        verified = self.api.post(url,headers=invocation())
+        self.assertEqual(verified.status_code,200,verified.text)
+        self.assertEqual(set(verified.json()),{"case_id","sha256","verified","checked_at"})
+        self.assertTrue(verified.json()["verified"])
+        timeline = self.api.get(f"/cases/{case}/timeline",headers=headers).json()
+        self.assertEqual(timeline[-1]["event"],"evidence.verified")
+        for changes, status in [
+            ({"aud":"other"},401),({"exp":1},401),({"principal":"viewer"},403),
+            ({"principal":"other"},403),({"actorAccountId":"impersonator"},403),
+            ({"app":app | {"installationId":"other"}},403),
+            ({"app":app | {"environment":{"id":"other"}}},403),
+            ({"app":app | {"id":"other"}},403)]:
+            with self.subTest(changes=changes):
+                self.assertEqual(self.api.post(url,headers=invocation(**changes)).status_code,status)
+        engine = make_engine()
+        try:
+            with Session(engine) as session, session.begin():
+                row = session.get(CaseEvidence,(self.tenant,case,receipt["sha256"]))
+                row.payload = b"synthetic corruption"
+            self.assertEqual(self.api.post(url,headers=invocation()).status_code,409)
+        finally:
+            engine.dispose()
