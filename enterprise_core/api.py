@@ -32,15 +32,17 @@ class NoteInput(BaseModel):
 
 
 class AssignmentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
     subject: str = Field(min_length=1, max_length=128)
 
 
 class StatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     status: Literal["open", "in_review", "closed"]
 
 
 class TransactionInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
     amount: str = Field(pattern=r"^(0|[1-9][0-9]{0,8})(\.[0-9]{1,2})?$")
     currency: str = Field(pattern=r"^[A-Z]{3}$")
     country_mismatch: StrictBool | None = None

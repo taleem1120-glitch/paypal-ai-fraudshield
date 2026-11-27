@@ -246,3 +246,34 @@ class EnterpriseAPITests(unittest.TestCase):
                              ["case.created","evidence.preserved","evidence.exported"])
         finally:
             engine.dispose()
+
+    def test_transaction_boundary_and_invalid_inputs_are_not_preserved(self):
+        headers = self.headers()
+        case = self.api.post("/cases",headers=headers,json={"title":"Input validation"}).json()["case_id"]
+        path = f"/cases/{case}/transactions/{uuid4()}"
+        valid = {"amount":"1000.00","currency":"USD","country_mismatch":False,
+                 "new_account":False,"unusual_activity":False}
+        for changes in ({"amount":1000}, {"amount":True}, {"amount":"1e3"},
+                        {"amount":"-1"}, {"amount":"01"}, {"amount":"1.001"},
+                        {"amount":"1000000000"}, {"currency":"usd"},
+                        {"country_mismatch":1}, {"new_account":"false"},
+                        {"unusual_activity":[]}, {"tenant_id":str(uuid4())}):
+            with self.subTest(changes=changes):
+                self.assertEqual(self.api.put(path,headers=headers,json=valid | changes).status_code,422)
+        events = self.api.get(f"/cases/{case}/timeline",headers=headers).json()
+        self.assertEqual([e["event"] for e in events],["case.created"])
+        first = self.api.put(path,headers=headers,json=valid)
+        self.assertEqual(first.status_code,200,first.text)
+        self.assertEqual(first.json()["assessment"]["rule_score"],0)
+        self.assertEqual(self.api.put(path,headers=headers,json=valid).json(),first.json())
+        second = self.api.put(f"/cases/{case}/transactions/{uuid4()}",headers=headers,
+                              json=valid | {"amount":"1000.01"})
+        self.assertEqual(second.status_code,200,second.text)
+        self.assertEqual(second.json()["assessment"]["rule_score"],25)
+        abstain = self.api.post("/assessments",headers=headers,
+                                json=valid | {"currency":"IQD","new_account":None}).json()
+        self.assertIsNone(abstain["rule_score"])
+        self.assertEqual(set(abstain["reason_codes"]),{"unsupported_currency","missing_indicators"})
+        for suffix, body in (("/status",{"status":"closed","tenant_id":str(uuid4())}),
+                             ("/assignment",{"subject":"alice","role":"tenant_admin"})):
+            self.assertEqual(self.api.put(f"/cases/{case}"+suffix,headers=headers,json=body).status_code,422)
