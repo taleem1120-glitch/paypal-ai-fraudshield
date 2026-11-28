@@ -277,3 +277,17 @@ class EnterpriseAPITests(unittest.TestCase):
         for suffix, body in (("/status",{"status":"closed","tenant_id":str(uuid4())}),
                              ("/assignment",{"subject":"alice","role":"tenant_admin"})):
             self.assertEqual(self.api.put(f"/cases/{case}"+suffix,headers=headers,json=body).status_code,422)
+
+    def test_sensitive_responses_are_not_cacheable(self):
+        headers = self.headers()
+        for response in (
+            self.api.get("/cases", headers=headers),
+            self.api.get("/cases"),
+            self.api.post("/cases", headers=self.headers(sub="bob"), json={"title":"Denied"}),
+            self.api.post("/cases", headers=headers, json={"title":""}),
+        ):
+            with self.subTest(status=response.status_code):
+                self.assertEqual(response.headers.get("cache-control"), "no-store")
+                self.assertEqual(response.headers.get("x-content-type-options"), "nosniff")
+        self.assertEqual(self.api.get("/cases", headers=headers).status_code, 200)
+        self.assertEqual(self.api.get("/cases").status_code, 401)

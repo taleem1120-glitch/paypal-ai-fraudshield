@@ -100,6 +100,13 @@ def create_app():
             raise HTTPException(401, "Invalid identity.")
         return VerifiedPrincipal(subject, issuer, audience)
 
+    @app.middleware("http")
+    async def protect_sensitive_responses(request, call_next):
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
     @app.exception_handler(AuthorizationDenied)
     async def forbidden(request, exc):
         return JSONResponse({"detail": "Access denied."}, status_code=403)
