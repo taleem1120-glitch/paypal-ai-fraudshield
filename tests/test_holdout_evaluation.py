@@ -29,6 +29,7 @@ class HoldoutEvaluationTests(unittest.TestCase):
         self.assertAlmostEqual(m["recall_all"],1/3)
         self.assertAlmostEqual(m["coverage"],2/3)
         self.assertEqual(m["precision"],0.5)
+        self.assertAlmostEqual(m["review_rate_including_abstentions"],2/3)
         self.assertEqual(report["overall"]["amount_only"]["scored"],4)
         self.assertIsNone(report["by_currency"]["IQD"]["policy"]["precision"])
         self.assertFalse(report["provenance_verified"])

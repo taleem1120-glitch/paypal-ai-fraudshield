@@ -10,7 +10,7 @@ import jwt
 from sqlalchemy import select
 
 from .authentication import VerifiedPrincipal
-from .evidence import check_original
+from .evidence import EvidenceIntegrityError, check_original
 from .models import CaseEvidence
 from .pilot_case import open_pilot_case
 from .secure_cases import require_context
@@ -69,7 +69,10 @@ def router(sessions, tenant):
     def pilot(response: Response, principal=Depends(forge_identity)):
         response.headers["Cache-Control"] = "no-store"
         with sessions.begin() as session:
-            return open_pilot_case(session, principal, tenant)
+            try:
+                return open_pilot_case(session, principal, tenant)
+            except EvidenceIntegrityError:
+                raise HTTPException(409, "Stored bytes failed verification.") from None
 
     @routes.get("/{case_id}/receipts")
     def lookup(case_id: UUID, response: Response, principal=Depends(forge_identity)):

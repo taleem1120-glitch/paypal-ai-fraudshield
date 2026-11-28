@@ -12,6 +12,10 @@ from .models import AuditEvent, CaseEvidence, TransactionReceipt
 from .secure_cases import require_context
 
 
+class EvidenceIntegrityError(ValueError):
+    """Stored original no longer agrees with its retained receipt."""
+
+
 def custody(session, ctx, case_id, event, digest):
     session.add(AuditEvent(tenant_id=ctx.tenant_id, actor_id=ctx.subject_id,
                            event_type=event, object_type="case", object_id=case_id,
@@ -33,6 +37,12 @@ def preserve(session, principal, tenant_id, case_id, raw):
     inserted = session.scalar(stmt.on_conflict_do_nothing().returning(CaseEvidence.digest))
     if inserted:
         custody(session, ctx, case.id, "evidence.preserved", digest)
+    else:
+        stored = session.scalar(select(CaseEvidence.payload).where(
+            CaseEvidence.tenant_id == ctx.tenant_id,
+            CaseEvidence.case_id == case.id, CaseEvidence.digest == digest))
+        if stored is None or stored != raw:
+            raise EvidenceIntegrityError("Stored evidence integrity check failed.")
     return {"schema": "fraudshield-receipt-v1", "case_id": case.id, "sha256": digest}
 
 
@@ -44,7 +54,7 @@ def _checked_row(session, principal, tenant_id, case_id, digest):
     if row is None:
         raise LookupError("Evidence unavailable.")
     if hashlib.sha256(row.payload).hexdigest() != row.digest:
-        raise ValueError("Stored evidence integrity check failed.")
+        raise EvidenceIntegrityError("Stored evidence integrity check failed.")
     return ctx, row
 
 

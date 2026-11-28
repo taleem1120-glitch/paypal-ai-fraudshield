@@ -240,6 +240,9 @@ class EnterpriseAPITests(unittest.TestCase):
             result = self.api.get(path+"/"+digest, headers=headers)
             self.assertEqual(result.status_code,409)
             self.assertNotIn(b"synthetic corruption",result.content)
+            self.assertEqual(self.api.post(path, headers=headers, content=raw).status_code,409)
+            with Session(engine) as session:
+                self.assertEqual(session.get(CaseEvidence,(self.tenant,case,digest)).payload,b"synthetic corruption")
             self.assertEqual(self.api.get(path+"/"+digest,headers=self.headers(sub="bob")).status_code,403)
             timeline = self.api.get(f"/cases/{case}/timeline",headers=headers).json()
             self.assertEqual([e["event"] for e in timeline],
@@ -378,5 +381,26 @@ class EnterpriseAPITests(unittest.TestCase):
                 self.assertEqual(session.get(CaseEvidence,(foreign,case_id,digest)).payload,raw)
                 events = cases.list_case_events(session, tenant_id=foreign, case_id=case_id)
                 self.assertEqual([e.event_type for e in events], ["case.created","evidence.preserved"])
+        finally:
+            engine.dispose()
+
+    def test_intake_retry_rejects_corrupt_original_without_repair(self):
+        from enterprise_core.models import CaseEvidence
+        headers = self.headers()
+        case = self.api.post("/cases",headers=headers,json={"title":"Retry integrity"}).json()["case_id"]
+        path = f"/cases/{case}/transactions/{uuid4()}"
+        body = {"amount":"5","currency":"USD"}
+        first = self.api.put(path,headers=headers,json=body)
+        self.assertEqual(first.status_code,200)
+        digest = first.json()["receipt"]["sha256"]
+        engine = make_engine()
+        try:
+            with Session(engine) as session, session.begin():
+                session.get(CaseEvidence,(self.tenant,case,digest)).payload = b"corrupt"
+            self.assertEqual(self.api.put(path,headers=headers,json=body).status_code,409)
+            with Session(engine) as session:
+                self.assertEqual(session.get(CaseEvidence,(self.tenant,case,digest)).payload,b"corrupt")
+            events = self.api.get(f"/cases/{case}/timeline",headers=headers).json()
+            self.assertEqual([event["event"] for event in events],["case.created","evidence.preserved"])
         finally:
             engine.dispose()

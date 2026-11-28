@@ -184,6 +184,8 @@ def create_app():
                 return evidence.preserve(session, principal, tenant, str(case_id), bytes(raw))
             except LookupError:
                 raise HTTPException(404, "Case unavailable.") from None
+            except evidence.EvidenceIntegrityError:
+                raise HTTPException(409, "Stored evidence integrity check failed.") from None
             except ValueError:
                 raise HTTPException(422, "Invalid audit.") from None
 
@@ -197,6 +199,8 @@ def create_app():
             try:
                 receipt = evidence.record_transaction(session, principal, tenant, str(case_id),
                                                       str(request_id), canonical_json(document).encode())
+            except evidence.EvidenceIntegrityError:
+                raise HTTPException(409, "Stored evidence integrity check failed.") from None
             except evidence.RequestConflict:
                 raise HTTPException(409, "Transaction key already has different content.") from None
             except LookupError:

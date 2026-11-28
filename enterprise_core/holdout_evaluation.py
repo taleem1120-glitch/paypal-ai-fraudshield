@@ -50,7 +50,8 @@ def _metrics(rows):
             "recall_scored": _ratio(tp, tp + fn),
             "recall_all": _ratio(tp, tp + fn + abstain_fraud),
             "false_positive_rate_scored": _ratio(fp, fp + tn),
-            "review_rate": _ratio(tp + fp, total)}
+            "review_rate": _ratio(tp + fp, total),
+            "review_rate_including_abstentions": _ratio(tp + fp + abstain_fraud + abstain_legitimate, total)}
 
 
 def evaluate(raw, cutoff, *, provenance):
