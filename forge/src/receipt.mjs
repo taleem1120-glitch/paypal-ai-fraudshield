@@ -1,7 +1,9 @@
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function parseReceipt(text) {
   if (typeof text !== "string" || text.length > 512) throw Error("Invalid receipt.");
-  const value = JSON.parse(text);
+  let value;
+  try { value = JSON.parse(text); }
+  catch { throw Error("Invalid receipt."); }
   if (!value || Object.keys(value).sort().join(",") !== "case_id,schema,sha256" ||
       value.schema !== "fraudshield-receipt-v1" || typeof value.case_id !== "string" ||
       typeof value.sha256 !== "string" || !uuid.test(value.case_id) ||

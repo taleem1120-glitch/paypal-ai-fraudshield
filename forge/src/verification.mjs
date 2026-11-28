@@ -7,9 +7,12 @@ export async function lookupReceipts(invoke, caseId) {
   const res = await invoke({path: "/forge/cases/" + id + "/receipts", method: "GET"});
   if (res?.status !== 200 || !Array.isArray(res.body?.receipts) || res.body.receipts.length > 20)
     throw Error("Lookup unavailable. Check your account and case access.");
+  const seen = new Set();
   return res.body.receipts.map(item => {
     const receipt = parseReceipt(JSON.stringify(item));
     if (receipt.case_id !== id) throw Error("Case mismatch.");
+    if (seen.has(receipt.sha256)) throw Error("Duplicate evidence reference.");
+    seen.add(receipt.sha256);
     return receipt;
   });
 }

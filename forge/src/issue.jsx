@@ -35,7 +35,10 @@ function Panel({id}) {
   async function link(receipt) {
     const time = await verifyStored(invokeRemote, receipt);
     await issueReceipt(requestJira, id, JSON.stringify(receipt));
-    setLinked(receipt);
+    const saved = await issueReceipt(requestJira, id);
+    setLinked(saved);
+    if (!saved || saved.case_id !== receipt.case_id || saved.sha256 !== receipt.sha256)
+      throw Error("The issue reference changed during saving. Review the current link.");
     setChoices([]);
     setMessage("Linked. Original bytes verified at " + time);
   }
@@ -65,7 +68,8 @@ function Panel({id}) {
       <Text>{item.sha256}</Text>
       <Button isDisabled={busy} onClick={() => run(() => link(item))}>Verify and link</Button>
     </React.Fragment>)}
-    <Text>{message}</Text>
+    <Text>{busy ? "Working… Please keep this panel open." : message}</Text>
+    <Text>Verification confirms stored bytes match the digest, not the authenticity of the source or a fraud verdict.</Text>
   </>;
 }
 function Issue() {
