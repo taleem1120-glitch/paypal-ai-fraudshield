@@ -1,8 +1,12 @@
 # Codegeist 2026 submission gate
 
 Official rules: https://codegeist2026.devpost.com/rules
-Submission deadline: 2026-12-22 12:00 PST (23:00 Baghdad). Target internal submission: December 19.
+Submission deadline: 2026-12-22 12:00 PST (23:00 Baghdad). Internal target: submit as soon as the required gates pass; aim for December 3–5, not a waiting period.
 Proposed category: Apps for Business Teams (financial investigation and evidence handoff). Existing FraudShield code is eligible in principle only if rebuilt or updated on Forge during the contest period and all other rules are met. Do not claim eligibility is approved.
+
+## Unified delivery sequence
+
+Execute the repository fixes, reproducible CI, security review and demo preparation as one candidate; do not defer independent tasks to calendar milestones. Freeze only after green CI and actual installation verification. The external dependency is an authorized Atlassian developer site, reachable HTTPS remote and verified Auth0 configuration. The internal target is planning only, not an assurance of completion.
 
 ## Mandatory acceptance
 - [ ] Register entrant on Devpost and obtain Atlassian Cloud developer site.

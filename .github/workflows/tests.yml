@@ -45,13 +45,19 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r enterprise-requirements.lock
 
-      - name: Select PostgreSQL 16 backup clients
+      - name: Use backup clients from the PostgreSQL service image
+        env:
+          PG_SERVICE_CONTAINER: ${{ job.services.postgres.id }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client-16
-          /usr/lib/postgresql/16/bin/pg_dump --version
-          /usr/lib/postgresql/16/bin/pg_restore --version
-          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+          set -eu
+          mkdir -p "$RUNNER_TEMP/pg16-bin"
+          for client in pg_dump pg_restore; do
+            printf '#!/bin/sh\nexec docker exec -i -e PGPASSWORD "$PG_SERVICE_CONTAINER" %s "$@"\n' "$client" > "$RUNNER_TEMP/pg16-bin/$client"
+            chmod +x "$RUNNER_TEMP/pg16-bin/$client"
+            "$RUNNER_TEMP/pg16-bin/$client" --version
+          done
+          echo "PG_SERVICE_CONTAINER=$PG_SERVICE_CONTAINER" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/pg16-bin" >> "$GITHUB_PATH"
 
       - name: Run regression tests
         run: python -m unittest discover -s tests -v

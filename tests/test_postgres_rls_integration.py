@@ -307,14 +307,17 @@ class PostgreSQLRLSTests(unittest.TestCase):
             env = dict(os.environ, PGPASSWORD=admin.get("password", ""))
             source = make_conninfo(**{k:v for k,v in admin.items() if k != "password"})
             destination = make_conninfo(source, dbname=database)
-            subprocess.run(["pg_dump", "--format=custom", "--file", archive, "--dbname", source],
-                           env=env, check=True, timeout=60, capture_output=True)
+            with open(archive, "wb") as stream:
+                subprocess.run(["pg_dump", "--format=custom", "--dbname", source],
+                               env=env, check=True, timeout=60, stdout=stream, stderr=subprocess.PIPE)
             with psycopg.connect(ADMIN_URL, autocommit=True) as conn:
                 conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
             restored = None
             try:
-                subprocess.run(["pg_restore", "--exit-on-error", "--dbname", destination, archive],
-                               env=env, check=True, timeout=60, capture_output=True)
+                with open(archive, "rb") as stream:
+                    subprocess.run(["pg_restore", "--exit-on-error", "--dbname", destination],
+                                   env=env, check=True, timeout=60, stdin=stream,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 restored = create_engine(runtime.set(database=database), pool_pre_ping=True)
                 with Session(restored) as session, session.begin():
                     self.assertEqual(evidence.record_transaction(session, principal, self.tenant_a,
