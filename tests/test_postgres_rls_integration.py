@@ -240,5 +240,39 @@ class PostgreSQLRLSTests(unittest.TestCase):
             self.assertEqual(session.scalar(text("SELECT count(*) FROM audit_events")), 0)
 
 
+    def test_runtime_engine_restart_preserves_receipts_and_custody(self):
+        from audit_reporting import create_audit_report, export_audit_json
+        from enterprise_core import evidence
+        from enterprise_core.authentication import VerifiedPrincipal
+        principal = VerifiedPrincipal(self.subject, "test", "test")
+        case = create_case(self.session, tenant_id=self.tenant_a, actor_id=self.subject,
+                           title="Restart durability")
+        self.session.commit()
+        raw = export_audit_json(create_audit_report({}, 0, False, 0, "low", "review", [])).encode()
+        request_id = str(uuid4())
+        with Session(self.engine) as session, session.begin():
+            receipt = evidence.record_transaction(session, principal, self.tenant_a, case.id,
+                                                  request_id, raw)
+        self.session.close()
+        self.engine.dispose()
+        fresh = create_engine(APP_URL.replace("postgresql://", "postgresql+psycopg://", 1),
+                              pool_pre_ping=True)
+        try:
+            with Session(fresh) as session, session.begin():
+                self.assertEqual(evidence.record_transaction(session, principal, self.tenant_a,
+                                 case.id, request_id, raw), receipt)
+                self.assertEqual(evidence.retrieve(session, principal, self.tenant_a, case.id,
+                                                   receipt["sha256"]), raw)
+                self.assertEqual(session.scalar(text("SELECT count(*) FROM transaction_receipts")), 1)
+                self.assertEqual(session.scalar(text("SELECT count(*) FROM audit_events "
+                    "WHERE event_type='evidence.preserved'")), 1)
+            with Session(fresh) as session, session.begin():
+                session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                                {"tenant": self.tenant_b})
+                self.assertEqual(session.scalar(text("SELECT count(*) FROM transaction_receipts")), 0)
+        finally:
+            fresh.dispose()
+
+
 if __name__ == "__main__":
     unittest.main()
