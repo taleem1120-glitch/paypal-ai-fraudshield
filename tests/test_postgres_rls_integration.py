@@ -195,5 +195,50 @@ class PostgreSQLRLSTests(unittest.TestCase):
         self.assertCountEqual(events, ["case.created","evidence.preserved"])
 
 
+    def test_transaction_receipt_conflict_is_atomic_and_tenant_scoped(self):
+        from audit_reporting import create_audit_report, export_audit_json
+        from enterprise_core import evidence
+        from enterprise_core.authentication import VerifiedPrincipal
+        principal = VerifiedPrincipal(self.subject, "test", "test")
+        case = create_case(self.session, tenant_id=self.tenant_a, actor_id=self.subject,
+                           title="Receipt atomicity")
+        self.session.commit()
+        request_id = str(uuid4())
+        original = export_audit_json(create_audit_report({}, 0, False, 0, "low", "review", [])).encode()
+        changed = export_audit_json(create_audit_report({}, 1, False, 0, "low", "review", [])).encode()
+        self.assertNotEqual(original, changed)
+        with Session(self.engine) as session, session.begin():
+            receipt = evidence.record_transaction(session, principal, self.tenant_a, case.id,
+                                                  request_id, original)
+        with Session(self.engine) as session, session.begin():
+            self.assertEqual(evidence.record_transaction(session, principal, self.tenant_a,
+                             case.id, request_id, original), receipt)
+        with self.assertRaises(evidence.RequestConflict):
+            with Session(self.engine) as session, session.begin():
+                evidence.record_transaction(session, principal, self.tenant_a, case.id,
+                                            request_id, changed)
+        with Session(self.engine) as session, session.begin():
+            self.assertEqual(evidence.retrieve(session, principal, self.tenant_a, case.id,
+                                               receipt["sha256"]), original)
+            self.assertEqual(session.scalar(text("SELECT count(*) FROM case_evidence")), 1)
+            self.assertEqual(session.scalar(text("SELECT count(*) FROM transaction_receipts")), 1)
+            self.assertEqual(session.scalar(text("SELECT count(*) FROM audit_events "
+                "WHERE event_type='evidence.preserved'")), 1)
+        for statement in ("UPDATE transaction_receipts SET digest=digest",
+                          "DELETE FROM transaction_receipts",
+                          "DELETE FROM case_evidence"):
+            with self.assertRaises(DBAPIError):
+                with Session(self.engine) as session, session.begin():
+                    session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                                    {"tenant": self.tenant_a})
+                    session.execute(text(statement))
+        with Session(self.engine) as session, session.begin():
+            session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                            {"tenant": self.tenant_b})
+            self.assertEqual(session.scalar(text("SELECT count(*) FROM transaction_receipts")), 0)
+            self.assertEqual(session.scalar(text("SELECT count(*) FROM case_evidence")), 0)
+            self.assertEqual(session.scalar(text("SELECT count(*) FROM audit_events")), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
