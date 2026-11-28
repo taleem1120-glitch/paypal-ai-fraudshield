@@ -1,0 +1,97 @@
+"""SQLAlchemy persistence models for the first commercial-core slice.
+
+These models do not provide authentication. Callers must obtain tenant_id from
+an authenticated server-side identity context, never from an untrusted client.
+"""
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from sqlalchemy import DateTime, ForeignKeyConstraint, Integer, String, Text, UniqueConstraint, event
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class TenantMembership(Base):
+    __tablename__ = "tenant_memberships"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "subject_id", name="uq_tenant_membership_subject"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    subject_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    active: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+
+class InvestigationCase(Base):
+    __tablename__ = "investigation_cases"
+    __table_args__ = (UniqueConstraint("tenant_id", "id", name="uq_investigation_cases_tenant_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    assigned_subject: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    __mapper_args__ = {"version_id_col": version}
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+    __table_args__ = (ForeignKeyConstraint(["tenant_id", "object_id"], ["investigation_cases.tenant_id", "investigation_cases.id"], name="fk_audit_case_tenant"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    tenant_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    actor_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    object_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+    details_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+
+@event.listens_for(AuditEvent, "before_update")
+def _reject_audit_update(mapper, connection, target):
+    raise ValueError("Audit events are append-only through the ORM.")
+
+
+@event.listens_for(AuditEvent, "before_delete")
+def _reject_audit_delete(mapper, connection, target):
+    raise ValueError("Audit events cannot be deleted through the ORM.")
+
+
+class CaseEvidence(Base):
+    __tablename__ = "case_evidence"
+    __table_args__ = (
+        ForeignKeyConstraint(["tenant_id", "case_id"],
+                             ["investigation_cases.tenant_id", "investigation_cases.id"]),
+    )
+    tenant_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    payload: Mapped[bytes]
+    actor_id: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class TransactionReceipt(Base):
+    __tablename__ = "transaction_receipts"
+    __table_args__ = (ForeignKeyConstraint(
+        ["tenant_id", "case_id", "digest"],
+        ["case_evidence.tenant_id", "case_evidence.case_id", "case_evidence.digest"]),)
+    tenant_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    case_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    digest: Mapped[str] = mapped_column(String(64))

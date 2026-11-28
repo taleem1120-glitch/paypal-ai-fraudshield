@@ -9,6 +9,11 @@ from evaluation import demonstration_cases, evaluate_synthetic_cases
 from scoring import train_model, score_transaction, risk_decision
 
 st.set_page_config(page_title="FraudShield | Evaluation", page_icon="📊", layout="wide")
+
+
+# Apply authentication even when this page is opened directly.
+from enterprise_core.streamlit_auth import require_page_enterprise_access
+require_page_enterprise_access(st)
 st.title("📊 Synthetic Risk Evaluation")
 st.warning(
     "Demonstration only: six hand-picked synthetic scenarios with no fraud labels. "

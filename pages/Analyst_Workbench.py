@@ -7,6 +7,11 @@ from batch_triage import triage, verify_batch_audit
 from scoring import train_model
 
 st.set_page_config(page_title="FraudShield | Analyst Workbench", layout="wide")
+
+
+# Apply authentication even when this page is opened directly.
+from enterprise_core.streamlit_auth import require_page_enterprise_access
+require_page_enterprise_access(st)
 st.title("FraudShield AI — Analyst Workbench")
 st.caption("Synthetic/manual risk triage only. No actual fraud identification, automatic blocking or PayPal-verified risk signals.")
 st.info("Analyze up to 200 fictional USD transactions together. This workbench never calls PayPal or processes real payments.")

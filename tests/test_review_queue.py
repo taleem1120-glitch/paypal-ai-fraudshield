@@ -39,6 +39,7 @@ class InvestigatorReviewTests(unittest.TestCase):
             self.assertTrue(verify_uploaded_audit(export_audit_json(r).encode())[0])
             self.assertEqual(r["risk_analysis"]["indicator_source"], "Synthetic scenario inputs")
 
+    @patch.dict("os.environ", {"FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED": "false"})
     def render(self, state, source, status="Open", click=None):
         ui = MagicMock()
         ui.session_state = state

@@ -68,15 +68,29 @@ def verify_v2_audit(document):
         return False
 
 
+def _unique_fields(pairs):
+    fields = dict(pairs)
+    if len(fields) != len(pairs):
+        raise ValueError("Ambiguous duplicate JSON keys.")
+    return fields
+
+
 def verify_uploaded_audit(raw):
     if not isinstance(raw, bytes) or not raw or len(raw) > MAX_AUDIT_BYTES:
         return False, "Invalid or oversized audit file (limit: 1 MiB)."
     try:
-        document = json.loads(raw.decode("utf-8"), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
-    except (UnicodeError, json.JSONDecodeError, ValueError):
+        document = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_fields, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+    except (UnicodeError, ValueError, RecursionError):
         return False, "Invalid JSON audit file."
     if not isinstance(document, dict):
         return False, "Audit report must be a JSON object."
+    try:
+        return _verify_document(document)
+    except (ValueError, TypeError, RecursionError, OverflowError):
+        return False, "Malformed audit content."
+
+
+def _verify_document(document):
     if document.get("schema") == "fraudshield-audit-v2":
         if verify_v2_audit(document):
             return True, "Synthetic v2 report: case and report SHA-256 digests match (not proof of authenticity)."

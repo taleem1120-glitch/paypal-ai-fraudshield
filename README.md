@@ -151,3 +151,33 @@ API tests use fictional data and mocked transport; they do not require credentia
 The GitHub Actions workflow runs these checks without secrets. Live sandbox integration
 and browser checks require a separately configured environment. Keep credentials in
 Streamlit secrets, never in source control.
+
+
+## FraudShield Enterprise X — separate development track
+
+A separate, isolated enterprise foundation is being developed on branch
+`enterprise/fraudshield-enterprise-x-foundation`. It does not replace the
+PayPal AI Hackathon prototype on `main`.
+
+Current branch work includes architecture and threat-model documentation,
+a verified prototype baseline audit, tenant-scoped case persistence, a
+PostgreSQL RLS migration, and additional regression tests. The branch is
+not yet an enterprise release: authentication, server-side tenant identity,
+evidence object storage/custody, durable production audit retention, full
+PostgreSQL integration tests, security testing, and the Atlassian Forge app
+remain outstanding.
+
+See:
+- `docs/enterprise/BASELINE_AUDIT.md`
+- `docs/enterprise/ARCHITECTURE.md`
+- `docs/enterprise/THREAT_MODEL.md`
+- `docs/enterprise/QUALITY_GATES.md`
+- `docs/enterprise/IMPLEMENTATION_ROADMAP.md`
+- `docs/enterprise/CASE_STORE.md`
+
+Do not submit real customer or payment data to this prototype or the
+unfinished enterprise branch.
+
+## FraudShield Enterprise X
+
+The enterprise branch adds a persistent case workbench, an Auth0-protected investigation API, evidence custody receipts, and Jira and Confluence receipt views. Deployment, access roles, pilot acceptance steps and commercial assumptions are in the [enterprise pilot guide](docs/enterprise/PILOT.md).

@@ -5,6 +5,11 @@ from review_queue import review_rows, synthetic_reports
 from scoring import train_model
 
 st.set_page_config(page_title="FraudShield | Investigator review", layout="wide")
+
+
+# Apply authentication even when this page is opened directly.
+from enterprise_core.streamlit_auth import require_page_enterprise_access
+require_page_enterprise_access(st)
 st.title("Investigator review")
 source = st.radio("Case source", ["Session analyses", "Synthetic demonstration"],
                   horizontal=True)

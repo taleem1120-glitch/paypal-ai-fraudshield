@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - phase-1-fraudshield-hardening
+      - enterprise/fraudshield-enterprise-x-foundation
   pull_request:
     branches:
       - main
@@ -15,20 +16,75 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fraudshield_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fraudshield_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      FRAUDSHIELD_TEST_POSTGRES_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/fraudshield_test
+      FRAUDSHIELD_TEST_POSTGRES_APP_URL: postgresql://fraudshield_app:fraudshield_test_password@localhost:5432/fraudshield_test
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r enterprise-requirements.lock
+
+      - name: Use backup clients from the PostgreSQL service image
+        env:
+          PG_SERVICE_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/pg16-bin"
+          for client in pg_dump pg_restore; do
+            printf '#!/bin/sh\nexec docker exec -i -e PGPASSWORD "$PG_SERVICE_CONTAINER" %s "$@"\n' "$client" > "$RUNNER_TEMP/pg16-bin/$client"
+            chmod +x "$RUNNER_TEMP/pg16-bin/$client"
+            "$RUNNER_TEMP/pg16-bin/$client" --version
+          done
+          echo "PG_SERVICE_CONTAINER=$PG_SERVICE_CONTAINER" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/pg16-bin" >> "$GITHUB_PATH"
 
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
 
       - name: Check Python compilation
-        run: python -m compileall -q app.py pages scoring.py transactions.py paypal_sandbox.py paypal_simulator.py audit_reporting.py audit_verification.py risk_intelligence.py evaluation.py batch_triage.py review_queue.py
+        run: python -m compileall -q app.py pages scoring.py transactions.py paypal_sandbox.py paypal_simulator.py audit_reporting.py audit_verification.py risk_intelligence.py evaluation.py batch_triage.py review_queue.py enterprise_core
+
+      - name: Check Forge receipt contracts
+        run: node --test forge/test/*.test.mjs
+
+      - name: Set up Node for Forge
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install locked Forge dependencies
+        working-directory: forge
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Validate Forge manifest with a synthetic remote
+        working-directory: forge
+        env:
+          FRAUDSHIELD_FORGE_APP_ID: ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000001
+          FRAUDSHIELD_FORGE_REMOTE_URL: https://evidence.example.com
+        run: |
+          node -e "require('@forge/manifest').validate().then(r => { if (!r.success) { console.error(r.errors); process.exitCode = 1; } })"
+
+      - name: Bundle both Forge views
+        working-directory: forge
+        run: npm exec --yes --package=esbuild@0.28.2 -- esbuild src/issue.jsx src/report.jsx --bundle --platform=browser --outdir="$RUNNER_TEMP/fraudshield-forge"

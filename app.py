@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 from paypal_simulator import simulate_paypal_transaction
@@ -6,16 +7,47 @@ from transactions import parse_order, transaction_record, active_order
 from scoring import train_model, score_transaction, risk_decision
 
 st.set_page_config(
-
-    
     page_title="FraudShield AI",
     page_icon="🛡️",
     layout="wide"
 )
 
+# Enterprise mode is opt-in and fail-closed. The public hackathon prototype
+# remains unchanged on main; this gate applies only to the Enterprise branch.
+ENTERPRISE_AUTH_ENABLED = os.environ.get(
+    "FRAUDSHIELD_ENTERPRISE_AUTH_ENABLED", "true"
+).strip().lower() not in {"0", "false", "no"}
+
+if ENTERPRISE_AUTH_ENABLED:
+    from enterprise_core.database import make_engine, make_session_factory
+    from enterprise_core.streamlit_auth import require_enterprise_session
+
+    try:
+        _engine = make_engine()
+        _session_factory = make_session_factory(_engine)
+    except Exception:
+        st.error("Enterprise database is not configured. Access is blocked.")
+        st.stop()
+
+    enterprise_session = require_enterprise_session(st, _session_factory)
+    st.sidebar.caption(
+        f"Signed in: {enterprise_session.principal.subject_id} "
+        f"· Role: {enterprise_session.tenant.role}"
+    )
+    if st.sidebar.button("Sign out"):
+        st.logout()
+        st.stop()
+else:
+    st.warning(
+        "Enterprise authentication is disabled. This mode is for local "
+        "prototype use only and must not be exposed to customers."
+    )
+
 st.title("🛡️ FraudShield AI")
 st.caption("Explainable Payment Risk Intelligence | AI Prototype")
 
+if ENTERPRISE_AUTH_ENABLED:
+    st.page_link("pages/3_Enterprise_Cases.py", label="Open persistent enterprise cases")
 st.page_link("pages/2_Investigator_Review.py", label="Open investigator review queue")
 st.page_link("pages/Analyst_Workbench.py", label="Open batch analyst workbench")
 
