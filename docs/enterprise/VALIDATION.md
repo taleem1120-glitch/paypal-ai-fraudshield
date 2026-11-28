@@ -20,3 +20,11 @@ Install the Python lock in a clean Python 3.11 environment. For PostgreSQL tests
 ## External acceptance
 
 Pending: live Auth0 browser login and logout on the intended domain, Jira and Confluence install/upgrade/uninstall on a real developer site, independent security review and a buyer pilot with measured review time and labeled data. SDK and integration tests use controlled fixtures. Dependency scans cover known advisories. The commercial pilot criteria are in [PILOT.md](PILOT.md).
+
+## November 28 candidate following 8e54123
+
+Full discovery with the locked dependencies on Python 3.12 and disposable PostgreSQL 16.2 passed 170 tests, including non-owner RLS, parallel evidence retries and a backup/restore exercise. All ten Node receipt contracts passed. Both Forge entry points bundled, and the manifest validated with synthetic configuration. The policy grid checked 486 inputs with zero violations, including bounds for every possible completion of missing USD flags.
+
+An automated Chromium session opened a case, previewed an incomplete checkout, preserved a synthetic audit and downloaded the verified original from the Streamlit workbench. The downloaded bytes matched the upload. This used a temporary SQLite store and a synthetic local identity supplied by the recording harness. [English workbench recording](Workbench-demo.mp4).
+
+Bandit scanned enterprise_core and pages with zero findings and zero scan errors. npm audit reported zero production advisories. PyPI's version-specific advisory lists for the 62 locked Python packages returned no active entries. These checks were run on November 28, 2026. Independent reviewer sign-off and hosted Auth0/Forge acceptance are outstanding. [Judge exercise and buyer pitch](JUDGE_WALKTHROUGH.md).

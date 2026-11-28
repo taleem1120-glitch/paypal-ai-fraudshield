@@ -57,7 +57,7 @@ def forge_identity(authorization: str = Header(default="")):
     except (KeyError, ValueError):
         raise HTTPException(503, "Account mapping unavailable.") from None
     subject = bindings.get(account)
-    if not isinstance(subject, str) or not subject.strip() or len(subject) > 128:
+    if not isinstance(subject, str) or not subject or subject != subject.strip() or len(subject) > 128:
         raise HTTPException(403, "Account is not provisioned.")
     return VerifiedPrincipal(subject, "forge/invocation-token", app_id)
 

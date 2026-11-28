@@ -5,6 +5,7 @@ This module only accepts claims exposed by Streamlit's authenticated st.user obj
 then independently checks configured issuer/audience and active tenant membership.
 """
 import os
+import time
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -33,7 +34,7 @@ def _claim(user, key):
 
 def require_enterprise_session(st, session_factory: sessionmaker) -> EnterpriseSession:
     """Redirect unauthenticated users to OIDC login; fail closed on all errors."""
-    if not bool(_claim(st.user, "is_logged_in")):
+    if _claim(st.user, "is_logged_in") is not True:
         st.info("Sign in with your organization's identity provider to continue.")
         st.login()
         st.stop()
@@ -57,13 +58,20 @@ def require_enterprise_session(st, session_factory: sessionmaker) -> EnterpriseS
         audience == expected_audience
         or isinstance(audience, (list, tuple)) and expected_audience in audience
     )
-    if (not isinstance(subject, str) or not subject.strip()
+    if (not isinstance(subject, str) or not subject or subject != subject.strip()
             or len(subject) > 128 or issuer != expected_issuer or not valid_audience):
         st.error("Your identity could not be verified for this application.")
         st.stop()
 
+    issued, expires = _claim(st.user, "iat"), _claim(st.user, "exp")
+    now = time.time()
+    if not (type(issued) is int and type(expires) is int and issued <= now < expires):
+        st.error("Your sign-in has expired or is invalid. Sign in again.")
+        st.logout()
+        st.stop()
+
     principal = VerifiedPrincipal(
-        subject_id=subject.strip(),
+        subject_id=subject,
         issuer=expected_issuer,
         audience=expected_audience,
     )

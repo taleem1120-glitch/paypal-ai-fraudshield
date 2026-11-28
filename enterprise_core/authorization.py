@@ -52,11 +52,11 @@ def authorize_tenant(
     requested_tenant_id is only a selector, never proof of membership.
     """
     if (not isinstance(verified_subject_id, str)
-            or not verified_subject_id.strip()
+            or not verified_subject_id or verified_subject_id != verified_subject_id.strip()
             or len(verified_subject_id) > 128):
         raise AuthorizationDenied("Tenant access denied.")
     tenant_id = _canonical_tenant_id(requested_tenant_id)
-    subject_id = verified_subject_id.strip()
+    subject_id = verified_subject_id
 
     # Set transaction-local RLS scope before querying tenant membership.
     if session.get_bind().dialect.name == "postgresql":

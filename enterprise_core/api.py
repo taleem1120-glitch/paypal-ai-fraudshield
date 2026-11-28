@@ -64,6 +64,19 @@ def assess(tx):
     return result
 
 
+def preview_assessment(tx):
+    """Explain the range of possible USD rule scores while indicators are unknown."""
+    result = assess(tx)
+    bounds = None
+    if tx.currency == "USD":
+        flags = (tx.country_mismatch, tx.new_account, tx.unusual_activity)
+        def score_with(missing):
+            completed = tuple(missing if flag is None else flag for flag in flags)
+            return explain(Scenario("preview", tx.amount, *completed))["rule_score"]
+        bounds = {"minimum": score_with(False), "maximum": score_with(True)}
+    return {**result, "possible_rule_scores": bounds}
+
+
 def create_app():
     domain = os.environ["FRAUDSHIELD_AUTH0_DOMAIN"]
     audience = os.environ["FRAUDSHIELD_AUTH0_API_AUDIENCE"]
@@ -170,7 +183,7 @@ def create_app():
     def assessment(body: TransactionInput, principal=Depends(identity)):
         with sessions.begin() as session:
             secure_cases.require_context(session, principal, tenant, "cases.create")
-            return assess(body)
+            return preview_assessment(body)
 
     @app.post("/cases/{case_id}/evidence")
     async def upload(case_id: UUID, request: Request, principal=Depends(identity)):

@@ -1,5 +1,6 @@
 """Streamlit OIDC-to-tenant gate tests."""
 import unittest
+import time
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -17,7 +18,7 @@ class StopRequested(Exception):
 
 class FakeStreamlit:
     def __init__(self, user):
-        self.user = user
+        self.user = {"iat": int(time.time()) - 5, "exp": int(time.time()) + 300, **user}
         self.messages = []
         self.login_called = False
 
@@ -29,6 +30,9 @@ class FakeStreamlit:
 
     def login(self):
         self.login_called = True
+
+    def logout(self):
+        self.user.clear()
 
     def stop(self):
         raise StopRequested()
@@ -74,6 +78,14 @@ class StreamlitOIDCGateTests(unittest.TestCase):
         self.assertEqual(result.principal.subject_id, "oidc-user-1")
         self.assertEqual(result.tenant.tenant_id, self.tenant)
         self.assertEqual(result.tenant.role, "investigator")
+
+    def test_session_dates_and_exact_subject(self):
+        claims = dict(is_logged_in=True, sub="oidc-user-1", iss="https://id.example/",
+                      aud="fraudshield-enterprise")
+        for override in ({"exp": 0}, {"exp": None}, {"exp": True}, {"iat": int(time.time()) + 900},
+                         {"sub": " oidc-user-1"}):
+            with self.subTest(override=override), self.assertRaises(StopRequested):
+                require_enterprise_session(FakeStreamlit(claims | override), self.factory)
 
     def test_wrong_issuer_is_rejected(self):
         st = FakeStreamlit({

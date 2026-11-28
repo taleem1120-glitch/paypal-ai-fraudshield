@@ -60,10 +60,10 @@ def authenticate_bearer(authorization_header: str) -> VerifiedPrincipal:
             },
         )
         subject = claims.get("sub")
-        if not isinstance(subject, str) or not subject.strip() or len(subject) > 128:
+        if not isinstance(subject, str) or not subject or subject != subject.strip() or len(subject) > 128:
             raise AuthenticationDenied("Authentication required.")
         return VerifiedPrincipal(
-            subject_id=subject.strip(), issuer=issuer, audience=audience
+            subject_id=subject, issuer=issuer, audience=audience
         )
     except AuthenticationDenied:
         raise

@@ -72,3 +72,5 @@ The automated tests verify the application-side OIDC claim gate and membership
 checks using test identities and SQLite. They do not replace a live browser
 login test against the organization's configured identity provider or a
 production PostgreSQL security review.
+
+The browser checks the identity token's integer issuance and expiry on each page run. At expiry it clears the Streamlit login session. Configure the identity provider to return both timestamps. Subject identifiers must match the membership record exactly, including case. Leading and trailing whitespace are rejected.

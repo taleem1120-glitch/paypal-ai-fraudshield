@@ -94,6 +94,18 @@ class EnterpriseAPITests(unittest.TestCase):
             self.assertEqual(restarted.get(url, headers=headers).content,raw)
             self.assertEqual(restarted.get(url, headers=self.headers(sub="bob")).status_code,403)
 
+    def test_partial_assessment_bounds_and_abstention(self):
+        body = dict(amount="1200", currency="USD", country_mismatch=True, unusual_activity=False)
+        def preview():
+            return self.api.post("/assessments", headers=self.headers(), json=body).json()
+        result = preview()
+        self.assertEqual(result["possible_rule_scores"], {"minimum":55, "maximum":75})
+        self.assertIsNone(result["rule_score"])
+        body["new_account"] = False
+        self.assertEqual(preview()["possible_rule_scores"], {"minimum":55, "maximum":55})
+        body["currency"] = "EUR"
+        self.assertIsNone(preview()["possible_rule_scores"])
+
     def test_abstention_and_reason_codes(self):
         body = dict(amount="1200", currency="USD")
         post = lambda: self.api.post("/assessments", headers=self.headers(), json=body)

@@ -1,6 +1,6 @@
 """Deterministic policy diagnostics, not an empirical fraud-accuracy benchmark."""
 from itertools import product
-from enterprise_core.api import TransactionInput, assess
+from enterprise_core.api import TransactionInput, assess, preview_assessment
 
 AMOUNTS = ("0", "0.01", "999.99", "1000", "1000.01", "999999999.99")
 CURRENCIES = ("USD", "IQD", "EUR")
@@ -34,7 +34,16 @@ def diagnostics():
             band = "high" if score >= 60 else "medium" if score >= 30 else "low_indicated"
             counts[band] += 1
             valid = result["rule_score"] == score and result["risk_band"] == band
-        if not valid or result != assess(tx):
+        preview = preview_assessment(tx)
+        expected_bounds = None
+        if currency == "USD":
+            # Enumerate every consistent completion to check both endpoints independently.
+            scores = [assess(TransactionInput(**(inputs | dict(zip(FIELDS, completed)))))["rule_score"]
+                      for completed in product((False, True), repeat=3)
+                      if all(observed is None or observed == value
+                             for observed, value in zip(flags, completed))]
+            expected_bounds = {"minimum": min(scores), "maximum": max(scores)}
+        if not valid or result != assess(tx) or preview["possible_rule_scores"] != expected_bounds:
             violations.append({"input": inputs, "result": result})
     return {"schema": "fraudshield-policy-diagnostics-v1",
             "scope": "exhaustive synthetic grid; no observed fraud labels",

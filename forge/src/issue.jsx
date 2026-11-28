@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from "react";
-import ForgeReconciler, {Button, Text, TextArea, useProductContext} from "@forge/react";
+import ForgeReconciler, {Button, Label, Text, TextArea, useProductContext} from "@forge/react";
 import {invokeRemote, requestJira} from "@forge/bridge";
 import {issueReceipt, parseReceipt} from "./receipt.mjs";
 import {lookupReceipts, verifyStored} from "./verification.mjs";
@@ -44,6 +44,10 @@ function Panel({id}) {
   }
   return <>
     <Text>{linked ? "Linked case " + linked.case_id + " · SHA-256 " + linked.sha256 : "No linked receipt displayed."}</Text>
+    {linked && <>
+      <Label labelFor="saved-receipt">Receipt for the Confluence report</Label>
+      <TextArea id="saved-receipt" isReadOnly value={JSON.stringify(linked)} />
+    </>}
     {linked && <Button isDisabled={busy} onClick={() => run(async () => {
       const current = await issueReceipt(requestJira, id);
       setLinked(current);
@@ -62,7 +66,8 @@ function Panel({id}) {
       setMessage("Synthetic checkout case prepared. Verify its original to link it to this issue.");
     })}>Open synthetic pilot case</Button>}
     <Text>Enter a FraudShield case UUID to find its latest 20 items, or paste an exact receipt. Linking replaces this issue's visible reference.</Text>
-    <TextArea value={input} isDisabled={busy} onChange={event => {setInput(event.target.value); setChoices([]);}} />
+    <Label labelFor="evidence-input">Case UUID or receipt JSON</Label>
+    <TextArea id="evidence-input" value={input} isDisabled={busy} onChange={event => {setInput(event.target.value); setChoices([]);}} />
     <Button isDisabled={busy || !input.trim()} onClick={() => run(lookup)}>Find evidence</Button>
     {choices.map(item => <React.Fragment key={item.sha256}>
       <Text>{item.sha256}</Text>
