@@ -332,3 +332,51 @@ class EnterpriseAPITests(unittest.TestCase):
             self.assertEqual(len(self.api.get("/cases",headers=headers).json()),1)
         finally:
             engine.dispose()
+
+    def test_foreign_tenant_case_and_receipt_are_inaccessible(self):
+        from enterprise_core import cases, evidence
+        from enterprise_core.authentication import VerifiedPrincipal
+        from enterprise_core.forge_remote import forge_identity
+        from enterprise_core.models import CaseEvidence
+        foreign = str(uuid4())
+        engine = make_engine()
+        raw = export_audit_json(create_audit_report({}, 0, False, 0.2, "low", "review", [])).encode()
+        try:
+            with Session(engine) as session, session.begin():
+                session.add(TenantMembership(tenant_id=foreign, subject_id="foreign-user", role="investigator"))
+                session.flush()
+                row = cases.create_case(session, tenant_id=foreign, actor_id="foreign-user", title="Foreign secret")
+                case_id = row.id
+                receipt = evidence.preserve(session, VerifiedPrincipal("foreign-user", self.issuer, "case-api"),
+                                            foreign, case_id, raw)
+                digest = receipt["sha256"]
+            headers = self.headers()
+            path = f"/cases/{case_id}"
+            self.assertEqual(self.api.get("/cases", headers=headers).json(), [])
+            self.assertEqual(self.api.get(path+"/timeline", headers=headers).json(), [])
+            for method, url, kwargs in (
+                ("GET", path+"/evidence/"+digest, {}),
+                ("POST", path+"/evidence", {"content":raw}),
+                ("POST", path+"/notes", {"json":{"note":"Forbidden"}}),
+                ("PUT", path+"/status", {"json":{"status":"closed"}}),
+                ("PUT", path+"/assignment", {"json":{"subject":"alice"}}),
+                ("PUT", path+"/transactions/"+str(uuid4()), {"json":{"amount":"5","currency":"USD"}}),
+            ):
+                with self.subTest(method=method, url=url):
+                    self.assertEqual(self.api.request(method, url, headers=headers, **kwargs).status_code, 404)
+            self.api.app.dependency_overrides[forge_identity] = lambda: VerifiedPrincipal("alice", self.issuer, "case-api")
+            try:
+                forge_path = f"/forge/cases/{case_id}/receipts"
+                self.assertEqual(self.api.get(forge_path).json(), {"receipts":[]})
+                self.assertEqual(self.api.post(forge_path+"/"+digest+"/verify").status_code, 404)
+            finally:
+                self.api.app.dependency_overrides.pop(forge_identity, None)
+            with Session(engine) as session:
+                original = cases.get_case(session, tenant_id=foreign, case_id=case_id)
+                self.assertEqual(original.status, "open")
+                self.assertIsNone(original.assigned_subject)
+                self.assertEqual(session.get(CaseEvidence,(foreign,case_id,digest)).payload,raw)
+                events = cases.list_case_events(session, tenant_id=foreign, case_id=case_id)
+                self.assertEqual([e.event_type for e in events], ["case.created","evidence.preserved"])
+        finally:
+            engine.dispose()
