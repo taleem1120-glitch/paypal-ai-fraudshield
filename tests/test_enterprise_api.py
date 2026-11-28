@@ -291,3 +291,44 @@ class EnterpriseAPITests(unittest.TestCase):
                 self.assertEqual(response.headers.get("x-content-type-options"), "nosniff")
         self.assertEqual(self.api.get("/cases", headers=headers).status_code, 200)
         self.assertEqual(self.api.get("/cases").status_code, 401)
+
+    def test_revoked_membership_denies_existing_token_on_all_case_routes(self):
+        from sqlalchemy import select
+        headers = self.headers()
+        case = self.api.post("/cases", headers=headers, json={"title":"Revocation"}).json()["case_id"]
+        path = f"/cases/{case}"
+        body = {"amount":"10.00","currency":"USD"}
+        receipt = self.api.put(path+"/transactions/"+str(uuid4()), headers=headers, json=body).json()["receipt"]
+        evidence_url = path+"/evidence/"+receipt["sha256"]
+        self.assertEqual(self.api.get(evidence_url, headers=headers).status_code, 200)
+        engine = make_engine()
+        try:
+            with Session(engine) as session, session.begin():
+                membership = session.scalar(select(TenantMembership).where(
+                    TenantMembership.tenant_id == self.tenant,
+                    TenantMembership.subject_id == "alice"))
+                membership.active = False
+            for method, url, kwargs in (
+                ("GET", "/cases", {}),
+                ("GET", path+"/timeline", {}),
+                ("GET", evidence_url, {}),
+                ("POST", "/cases", {"json":{"title":"Forbidden"}}),
+                ("POST", path+"/notes", {"json":{"note":"Forbidden"}}),
+                ("PUT", path+"/status", {"json":{"status":"in_review"}}),
+                ("PUT", path+"/assignment", {"json":{"subject":"alice"}}),
+                ("PUT", path+"/transactions/"+str(uuid4()), {"json":body}),
+                ("POST", "/assessments", {"json":body}),
+            ):
+                with self.subTest(method=method, url=url):
+                    self.assertEqual(self.api.request(method,url,headers=headers,**kwargs).status_code,403)
+            with Session(engine) as session, session.begin():
+                membership = session.scalar(select(TenantMembership).where(
+                    TenantMembership.tenant_id == self.tenant,
+                    TenantMembership.subject_id == "alice"))
+                membership.active = True
+            events = self.api.get(path+"/timeline",headers=headers).json()
+            self.assertEqual([e["event"] for e in events],
+                             ["case.created","evidence.preserved","evidence.exported"])
+            self.assertEqual(len(self.api.get("/cases",headers=headers).json()),1)
+        finally:
+            engine.dispose()
