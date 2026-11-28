@@ -274,5 +274,72 @@ class PostgreSQLRLSTests(unittest.TestCase):
             fresh.dispose()
 
 
+    def test_disposable_backup_restore_preserves_evidence_and_rls(self):
+        import shutil
+        import subprocess
+        import tempfile
+        from psycopg import sql
+        from psycopg.conninfo import conninfo_to_dict, make_conninfo
+        from sqlalchemy.engine import make_url
+        from audit_reporting import create_audit_report, export_audit_json
+        from enterprise_core import evidence
+        from enterprise_core.authentication import VerifiedPrincipal
+
+        admin = conninfo_to_dict(ADMIN_URL)
+        runtime = make_url(APP_URL.replace("postgresql://", "postgresql+psycopg://", 1))
+        self.assertEqual(admin.get("dbname"), "fraudshield_test")
+        self.assertEqual(runtime.database, "fraudshield_test")
+        self.assertTrue(shutil.which("pg_dump"), "PostgreSQL client tools required")
+        self.assertTrue(shutil.which("pg_restore"), "PostgreSQL client tools required")
+        principal = VerifiedPrincipal(self.subject, "test", "test")
+        case = create_case(self.session, tenant_id=self.tenant_a, actor_id=self.subject,
+                           title="Backup verification")
+        self.session.commit()
+        case_id = case.id
+        request_id = str(uuid4())
+        raw = export_audit_json(create_audit_report({}, 0, False, 0, "low", "review", [])).encode()
+        with Session(self.engine) as session, session.begin():
+            receipt = evidence.record_transaction(session, principal, self.tenant_a,
+                                                  case_id, request_id, raw)
+        database = "fraudshield_restore_" + uuid4().hex
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = str(Path(tmp) / "synthetic.dump")
+            env = dict(os.environ, PGPASSWORD=admin.get("password", ""))
+            source = make_conninfo(**{k:v for k,v in admin.items() if k != "password"})
+            destination = make_conninfo(source, dbname=database)
+            subprocess.run(["pg_dump", "--format=custom", "--file", archive, "--dbname", source],
+                           env=env, check=True, timeout=60, capture_output=True)
+            with psycopg.connect(ADMIN_URL, autocommit=True) as conn:
+                conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+            restored = None
+            try:
+                subprocess.run(["pg_restore", "--exit-on-error", "--dbname", destination, archive],
+                               env=env, check=True, timeout=60, capture_output=True)
+                restored = create_engine(runtime.set(database=database), pool_pre_ping=True)
+                with Session(restored) as session, session.begin():
+                    self.assertEqual(evidence.record_transaction(session, principal, self.tenant_a,
+                                     case_id, request_id, raw), receipt)
+                    self.assertEqual(evidence.retrieve(session, principal, self.tenant_a,
+                                                       case_id, receipt["sha256"]), raw)
+                    self.assertEqual(session.scalar(text("SELECT count(*) FROM transaction_receipts")), 1)
+                    self.assertEqual(session.scalar(text("SELECT count(*) FROM audit_events "
+                        "WHERE event_type='evidence.preserved'")), 1)
+                with Session(restored) as session, session.begin():
+                    session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                                    {"tenant":self.tenant_b})
+                    for table in ("case_evidence", "transaction_receipts", "audit_events"):
+                        self.assertEqual(session.scalar(text("SELECT count(*) FROM " + table)), 0)
+                with self.assertRaises(DBAPIError):
+                    with Session(restored) as session, session.begin():
+                        session.execute(text("SELECT set_config('app.tenant_id', :tenant, true)"),
+                                        {"tenant":self.tenant_a})
+                        session.execute(text("DELETE FROM case_evidence"))
+            finally:
+                if restored is not None:
+                    restored.dispose()
+                with psycopg.connect(ADMIN_URL, autocommit=True) as conn:
+                    conn.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
+
+
 if __name__ == "__main__":
     unittest.main()
